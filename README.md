@@ -13,6 +13,5 @@ See `docs/design.md` for the design and the decision log.
 
 * Install [corral](https://github.com/ponylang/corral) and
   [ponyc](https://github.com/ponylang/ponyc)
-* `make` builds the tests and the `hefermotor` command into
-  `build/debug/` and runs the tests
-* `build/debug/hefermotor check <dir>` checks a package
+* `make` runs the source check, builds the tests and the `hefermotor`
+  command into `build/debug/`, and runs the tests

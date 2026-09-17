@@ -1,0 +1,14 @@
+{
+  "packages": [
+    "hefermotor"
+  ],
+  "deps": [],
+  "info": {
+    "description": "A semantic analyzer for Pony, built beside ponyc",
+    "homepage": "",
+    "license": "BSD-2-Clause",
+    "documentation_url": "",
+    "version": "0.0.0",
+    "name": "hefermotor"
+  }
+}

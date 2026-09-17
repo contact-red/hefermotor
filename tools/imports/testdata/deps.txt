@@ -1,0 +1,18 @@
+# The test tree for check.sh. Every rule has a file it must report and a
+# file it must not, and every branch of the key lookup has a file:
+# package line, file line replacing it, the `*/` glob, the _test.pony
+# default, a bare key with its values on the next line, a nested
+# subpackage under a !phase package, the umbrella and the binary.
+!banned:               time random process net
+!phase:                parse hefermotor/group.pony
+!hash64-only:          source/hash_builder.pony
+source:                collections time
+parse:                 source
+                       collections
+parse/narrow.pony:
+                       source
+other:                 collections
+other/_test.pony:      collections
+hefermotor:            source
+hefermotor_main:       hefermotor
+*/_unreachable.pony:   @
