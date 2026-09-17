@@ -19,6 +19,9 @@ discover/disk_file_system.pony:
                        source diagnostics parse files collections
 discover/_test.pony:   source diagnostics parse files collections
                        pony_test pony_check
+discover/_test_program.pony:
+                       source diagnostics parse files collections
+                       pony_test
 export:                source diagnostics discover collections
 schedule:              source diagnostics parse discover export
                        promises collections

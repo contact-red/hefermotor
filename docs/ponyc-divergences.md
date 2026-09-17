@@ -44,10 +44,13 @@ Every other entry cites ponyc at commit `6a0bfa80b`.
   (`src/libponyc/pass/scope.c:87`), whose position is the keyword
   (`src/libponyc/ast/parser.c:1303`). The guard-not-allowed and
   alias-not-allowed errors are positioned at the alias node
-  (`src/libponyc/pkg/use.c:126-136`). ponyc emits "couldn't locate this
-  path" as a file-level error with no position (`package.c:1075`) and then
-  "can't load package" at the `use`; hefermotor emits one diagnostic,
-  `CantLoadPackage`, at the `use`.
+  (`src/libponyc/pkg/use.c:126-136`); hefermotor reports both over the
+  whole `use` declaration, starting at the keyword. An unknown scheme is
+  reported at the locator string on both sides (`use.c:106-108`). ponyc
+  emits "couldn't locate this path" as a file-level error with no
+  position (`package.c:1075`) and then "can't load package" at the `use`;
+  hefermotor emits one diagnostic, `CantLoadPackage`, over the whole
+  `use` declaration.
 - **A `use` after a type definition is a syntax error.** ponyc's module
   rule takes the package docstring, then `use` commands, then type
   definitions (`parser.c:1310-1319`). The parser quarried from pony-lsp2
@@ -59,12 +62,16 @@ Every other entry cites ponyc at commit `6a0bfa80b`.
   breadth-first, so when two locators reach one directory the first-reach
   name can differ. The name is display only; nothing identifies a package
   by it.
-- **An unreadable file fails its package.** ponyc reports `can't open
-  file <path>` (`source.c:17`, `package.c:150-156`), reads the other files (310-314), then
-  fails the package load (1186-1192), so a dependent's `use` gets "can't
-  load package". A second `use` of the same directory gets the preserved
-  package back with no second error (1155-1157). hefermotor reports the
-  file, fails the package and reports each `use` of it.
+- **An unreadable file fails its package, and every `use` of a failed
+  directory is reported.** ponyc reports `can't open file <path>`
+  (`source.c:17`, `package.c:150-156`), reads the other files (310-314),
+  then fails the package load (1186-1192), so a dependent's `use` gets
+  "can't load package". ponyc registers a package before any failure
+  that follows locating its directory, so a second `use` of a directory
+  that failed for any reason (an unreadable file, no source files) gets
+  the registered package back with no second error (1155-1157).
+  hefermotor reports the file, fails the package and reports each `use`
+  of a failed directory with the reason.
 
 ## Pinned in pony-lsp2
 

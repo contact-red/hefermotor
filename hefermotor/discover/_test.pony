@@ -25,6 +25,7 @@ actor \nodoc\ Main is TestList
     test(_TestClassifyUse)
     test(_TestCauseCodesDistinct)
     test(_TestDiskFileSystem)
+    _ProgramTests(test)
 
 primitive \nodoc\ _Denied
   fun apply(r: (String | Array[String] val | Denied)): Bool =>
@@ -88,6 +89,11 @@ class \nodoc\ iso _TestMemoryFileSystem is UnitTest
     h.assert_array_eq[String](["b"; "d"],
       fs.entries("/a") as Array[String] val)
     h.assert_eq[String]("c", fs.read("/a/b/c.pony") as String)
+    // Adding a file again replaces its content and lists it once.
+    fs.file("/a/b/c.pony", "c2")
+    h.assert_eq[String]("c2", fs.read("/a/b/c.pony") as String)
+    h.assert_array_eq[String](["c.pony"; "a.pony"],
+      fs.entries("/a/b") as Array[String] val)
     h.assert_true(_Denied(fs.read("/a/b/nope")))
     fs.deny("/a/b/c.pony")
     h.assert_true(_Denied(fs.read("/a/b/c.pony")))

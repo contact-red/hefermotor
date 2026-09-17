@@ -62,8 +62,9 @@ class MemoryFileSystem is FileSystem
 
   fun ref file(path: String, content: String) =>
     """
-    A file, and every directory above it. A path that is already a
-    directory or a link is a fixture mistake.
+    A file, and every directory above it. Adding a path again replaces
+    its content. A path that is already a directory or a link is a
+    fixture mistake.
     """
     let p = _normalize(path)
     if _dirs.contains(p) or _links.contains(p) then _Unreachable() end
@@ -210,7 +211,7 @@ class MemoryFileSystem is FileSystem
       _order(parent) = fresh
       fresh
     end
-    if not names.contains(name) then names.push(name) end
+    if not names.contains(name, {(a, b) => a == b}) then names.push(name) end
 
   fun _normalize(path: String): String =>
     """
