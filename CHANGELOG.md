@@ -9,6 +9,9 @@ All notable changes to this project will be documented in this file. This projec
 
 ### Added
 
+- `hefermotor check`: discovery of a program's packages in ponyc's
+  search order and their dependency groups, reported as text or JSON
+
 
 ### Changed
 
