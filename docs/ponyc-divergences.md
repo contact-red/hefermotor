@@ -59,8 +59,8 @@ Every other entry cites ponyc at commit `6a0bfa80b`.
   breadth-first, so when two locators reach one directory the first-reach
   name can differ. The name is display only; nothing identifies a package
   by it.
-- **An unreadable file fails its package.** ponyc reports `couldn't open
-  file <path>` (`package.c:148-156`), reads the other files (310-314), then
+- **An unreadable file fails its package.** ponyc reports `can't open
+  file <path>` (`source.c:17`, `package.c:150-156`), reads the other files (310-314), then
   fails the package load (1186-1192), so a dependent's `use` gets "can't
   load package". A second `use` of the same directory gets the preserved
   package back with no second error (1155-1157). hefermotor reports the

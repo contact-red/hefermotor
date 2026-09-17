@@ -2,6 +2,7 @@ use "pony_test"
 use source = "./source"
 use diag = "./diagnostics"
 use parse = "./parse"
+use discover = "./discover"
 
 actor \nodoc\ Main is TestList
   new create(env: Env) => PonyTest(env, this)
@@ -11,3 +12,4 @@ actor \nodoc\ Main is TestList
     source.Main.make().tests(test)
     diag.Main.make().tests(test)
     parse.Main.make().tests(test)
+    discover.Main.make().tests(test)
