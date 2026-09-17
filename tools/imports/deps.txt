@@ -1,0 +1,34 @@
+# One line per package: the hefermotor packages and stdlib packages its
+# files may `use`. A line naming a file replaces its package's line for
+# that file. `@` on a line permits `use @` and FFI calls in that file.
+# _test.pony files with no line of their own: the package line plus
+# pony_test pony_check. A package key is its path under hefermotor/; the
+# umbrella and the binary are their own names. Directive lines start
+# with `!`: `!banned` names packages nothing may use, `!phase` names the
+# packages and files where `digestof`, `MapIs`, `SetIs`, `HashIs` and
+# `Pointer[` are rejected, `!hash64-only` names files where `.hash()` is
+# rejected.
+!banned:               time random process net
+!phase:                parse discover export hefermotor/analyze_group.pony
+!hash64-only:          source/hash_builder.pony
+source:                collections
+diagnostics:           collections
+parse:                 source diagnostics collections
+discover:              source diagnostics parse collections
+discover/disk_file_system.pony:
+                       source diagnostics parse files collections
+discover/_test.pony:   source diagnostics parse files collections
+                       pony_test pony_check
+export:                source diagnostics discover collections
+schedule:              source diagnostics parse discover export
+                       promises collections
+command:               source diagnostics parse discover export schedule
+                       cli promises collections
+hefermotor:            source diagnostics parse discover export schedule
+                       command promises collections
+hefermotor/analyze_group.pony:
+                       source diagnostics discover export collections
+hefermotor/_test.pony: source diagnostics parse discover export schedule
+                       command promises files collections pony_test
+hefermotor_main:       hefermotor command discover files
+*/_unreachable.pony:   @

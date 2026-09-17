@@ -1,0 +1,29 @@
+hefermotor/group.pony:4: rule 4: hashing by address in a phase file
+hefermotor/other/_test.pony:1: rule 1: use of pony_test not on the file's line
+hefermotor/other/ok.pony:3: rule 1: use of pony_test not on the file's line
+hefermotor/parse/address.pony:2: rule 4: hashing by address in a phase file
+hefermotor/parse/address.pony:3: rule 4: hashing by address in a phase file
+hefermotor/parse/address.pony:4: rule 4: hashing by address in a phase file
+hefermotor/parse/address.pony:5: rule 4: hashing by address in a phase file
+hefermotor/parse/address.pony:6: rule 4: hashing by address in a phase file
+hefermotor/parse/ffi_bracket.pony:2: rule 3: FFI call in a file whose line lacks @
+hefermotor/parse/ffi_call.pony:2: rule 3: FFI call in a file whose line lacks @
+hefermotor/parse/ffi_decl.pony:1: rule 2: use @ in a file whose line lacks @
+hefermotor/parse/ffi_spaced.pony:2: rule 3: FFI call in a file whose line lacks @
+hefermotor/parse/ffi_spaced.pony:3: rule 3: FFI call in a file whose line lacks @
+hefermotor/parse/ffi_string.pony:2: rule 3: FFI call in a file whose line lacks @
+hefermotor/parse/inner/nested.pony:2: rule 4: hashing by address in a phase file
+hefermotor/parse/narrow.pony:2: rule 1: use of collections not on the file's line
+hefermotor/parse/oneline.pony:3: rule 3: FFI call in a file whose line lacks @
+hefermotor/parse/sets.pony:10: rule 4: hashing by address in a phase file
+hefermotor/parse/sets.pony:11: rule 4: hashing by address in a phase file
+hefermotor/parse/sets.pony:7: rule 4: hashing by address in a phase file
+hefermotor/parse/use_shapes.pony:1: rule 1: use of banned package time
+hefermotor/parse/use_shapes.pony:2: rule 1: use of banned package random
+hefermotor/source/clock.pony:1: rule 1: use of banned package time
+hefermotor/source/fmt.pony:1: rule 1: use of format not on the file's line
+hefermotor/source/fmt.pony:2: rule 1: use of format not on the file's line
+hefermotor/source/fmt.pony:3: rule 1: use of format not on the file's line
+hefermotor/source/hash_builder.pony:2: rule 5: .hash() where only hash64 is allowed
+hefermotor/source/hash_builder.pony:4: rule 5: .hash() where only hash64 is allowed
+hefermotor_main/main.pony:2: rule 1: use of source not on the file's line

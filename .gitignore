@@ -1,3 +1,4 @@
 build/
 *.swp
 lock.json
+super-linter.log
