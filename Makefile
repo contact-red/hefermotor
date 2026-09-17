@@ -32,6 +32,12 @@ CLI_SOURCE_FILES := $(shell find $(CLI_SRC_DIR) -name '*.pony')
 
 test: lint-source unit-tests cli
 
+determinism: $(cli_binary)
+	tools/determinism/check.sh $(cli_binary)
+
+differential: $(cli_binary)
+	tools/differential/run.sh $(cli_binary)
+
 unit-tests: $(tests_binary)
 	$^ --sequential
 
@@ -73,4 +79,5 @@ all: test
 $(BUILD_DIR):
 	mkdir -p $(BUILD_DIR)
 
-.PHONY: all cli clean docs lint-source TAGS test unit-tests
+.PHONY: all cli clean determinism differential docs lint-source TAGS test \
+  unit-tests

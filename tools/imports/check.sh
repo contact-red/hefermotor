@@ -25,8 +25,8 @@
 # matches that file name in every package. Text inside `"""` blocks,
 # inside string literals, and after `//` is not scanned, and whitespace
 # between the tokens of a `use` line or an FFI call does not hide it.
-# `<root>/build`, `<root>/_corral` and `<root>/tools/imports/testdata`
-# are not walked.
+# `<root>/build`, `<root>/_corral`, `<root>/tools/imports/testdata` and
+# `<root>/tools/differential/cases` are not walked.
 #
 # This is a check against mistakes, not a proof: a line shaped so that
 # no rule's pattern matches it is not reported.
@@ -216,7 +216,8 @@ while IFS= read -r file; do
   done >> "$findings"
 done < <(find "$root" -name '*.pony' \
   -not -path "$root/_corral/*" -not -path "$root/build/*" \
-  -not -path "$root/tools/imports/testdata/*" | LC_ALL=C sort)
+  -not -path "$root/tools/imports/testdata/*" \
+  -not -path "$root/tools/differential/cases/*" | LC_ALL=C sort)
 
 if [ -s "$findings" ]; then
   LC_ALL=C sort "$findings"
