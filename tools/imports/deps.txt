@@ -10,8 +10,8 @@
 # rejected.
 !banned:               time random process net
 !phase:                parse discover export hefermotor/analyze_group.pony
-!hash64-only:          source/hash_builder.pony
-source:                collections
+!hash64-only:          source/hash_builder.pony source/source_file.pony
+source:                format
 diagnostics:           collections
 parse:                 source diagnostics collections
 discover:              source diagnostics parse collections
