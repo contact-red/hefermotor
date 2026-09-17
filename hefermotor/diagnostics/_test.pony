@@ -95,6 +95,13 @@ class \nodoc\ iso _TestOrderFields is UnitTest
     let short = Diagnostic(c, Span("/p", "a.pony", 0, 1))
     h.assert_true(short < at0)
     h.assert_eq[USize](5, Span("/p", "a.pony", 0, 5).finish())
+    // `Span.eq` sees every field.
+    let base = Span("/p", "a.pony", 0, 5)
+    h.assert_true(base == Span("/p", "a.pony", 0, 5))
+    h.assert_false(base == Span("/q", "a.pony", 0, 5))
+    h.assert_false(base == Span("/p", "b.pony", 0, 5))
+    h.assert_false(base == Span("/p", "a.pony", 1, 5))
+    h.assert_false(base == Span("/p", "a.pony", 0, 6))
     let code_a = Diagnostic(_Cause("x/a", "z"), Span("/p", "a.pony", 0, 1))
     let code_b = Diagnostic(_Cause("x/b", "a"), Span("/p", "a.pony", 0, 1))
     h.assert_true(code_a < code_b)
