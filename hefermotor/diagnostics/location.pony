@@ -1,4 +1,4 @@
-class val Span
+class val Span is Equatable[Span]
   """
   A byte range in one file. The file is named as its package directory plus
   the file name within it, so a consumer that stores locations can keep
@@ -29,6 +29,10 @@ class val Span
     The byte offset just past the range.
     """
     start + length
+
+  fun eq(that: Span box): Bool =>
+    (dir == that.dir) and (name == that.name) and (start == that.start)
+      and (length == that.length)
 
 class val FileOnly
   """
