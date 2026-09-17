@@ -136,7 +136,7 @@ is this design. A withdrawn number stays in place and says so.
    aborts on exit 2 rather than scoring the case.
 9. **Withdrawn (Decision 4).** The candidate let a package load
    without an unreadable file. Red chose ponyc parity: ponyc reports
-   `couldn't open file <path>` for the file (`package.c:148-156`),
+   `can't open file <path>` for the file (`source.c:17`, `package.c:150-156`),
    keeps reading the others (310-314, `r &=`), then fails the package
    load (1186-1192), so the package is absent and a dependent's `use`
    is "can't load package". hefermotor does the same: the per-file
@@ -680,8 +680,8 @@ package that holds `actor Main`, which still reads right.
 keep the resilient behaviour (diagnostic, package loads without the
 file) or match ponyc and fail the package load. Red: "Fail the
 package". Applied, from `package.c:137-160, 220-320, 1186-1202`: an
-unreadable file is reported as `couldn't open file <path>` at the
-file (`parse_source_file`, 148-156); `parse_files_in_dir` goes on
+unreadable file is reported as `can't open file <path>` at the
+file (`source_open`, `source.c:17`; `parse_source_file`, 150-156); `parse_files_in_dir` goes on
 through the other files and returns false (310-314, `r &=`);
 `package_load` then marks the package `PRESERVE` and returns NULL
 (1186-1192), so the package is absent from the program and a
