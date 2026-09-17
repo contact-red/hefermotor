@@ -4,6 +4,7 @@ use diag = "./diagnostics"
 use parse = "./parse"
 use discover = "./discover"
 use export = "./export"
+use schedule = "./schedule"
 
 actor \nodoc\ Main is TestList
   new create(env: Env) => PonyTest(env, this)
@@ -15,3 +16,4 @@ actor \nodoc\ Main is TestList
     parse.Main.make().tests(test)
     discover.Main.make().tests(test)
     export.Main.make().tests(test)
+    schedule.Main.make().tests(test)
