@@ -631,6 +631,20 @@ and `stdlib` are singletons and `net` is 95% one member, so a
 per-member seam would shorten almost none of it; the seam kept open is
 per file or type inside a package (Sketch E).
 
+Measured at the end of M0 over the ponyup tree (ponyc
+nightly-20260915, 64 cores, release build of a probe that calls
+`Discover` then `Check` with the stub phases): discovery of the
+stdlib reads 462 files, 3,707,445 bytes, into 30 groups over 38
+packages in 63 to 70 ms; the four multi-member groups are the four
+from ponyc's dump above; the
+critical path is the six groups above, 2,208,733 bytes on that tree;
+the check itself, one `_Task` per file for the `use` scan plus the
+stub analysis, takes 23 to 28 ms, so spawning an actor per stdlib file
+costs nothing measurable at M0's volumes. The time to the first
+group's start is the discovery time: the scheduler launches `builtin`
+at once. The debug CLI build checks the stdlib end to end in about
+0.23 s.
+
 ## Decisions
 
 Red answered the ten questions the design raised. Each entry gives
@@ -794,7 +808,15 @@ adds and why.
   and the stdlib slot derived from the `ponyc` on `PATH`.
 - **`EACCES` from disk has no CI test.** `DiskFileSystem` maps it to
   `Denied`; CI runs as root, and git cannot store a mode-000 file, so the
-  mapping is exercised only by hand.
+  mapping is exercised only by hand. The same holds for a `.pony` entry
+  that is a device or a pipe, which `DiskFileSystem.read` refuses with
+  ponyc's "can't determine length of file" rather than asking the
+  stdlib for a length it cannot give.
+- **The stdlib slot is the first file named `ponyc` on `PATH`**, not
+  the first executable one: `StdlibSlot` checks that the file exists
+  and never that it runs, so a `ponyc` the shell would skip still
+  decides the slot. The differential harness's sentinel is what
+  catches a slot that differs from the `ponyc` that runs.
 - **A package's display name is ponyc's qualified name, first reach
   wins, and nothing identifies a package by it.** ponyc loads
   dependencies depth-first (`scope.c:364-366`); discovery here is
@@ -820,6 +842,14 @@ adds and why.
   if it runs over source nobody chose to trust"). M5 inherits this and
   must re-apply the trigger; confinement, if ever wanted, is a policy
   inside `Locate` and `LocateTarget`, the only builders of `PackageDir`.
+- **A relative `--path`, `PONYPATH` or `PATH` entry is taken under the
+  base directory**, the process's working directory for the binary, as
+  ponyc resolves a relative search path against its working directory
+  (`package.c:363-372, 696-708`). `CheckArgs` joins it before the roots
+  are built, so `SearchRoots` holds absolute directories only; a
+  `--path` value is split on `:` as ponyc splits it. A base that is not
+  absolute, which `Path.cwd()` gives when the working directory cannot
+  be read, ends the run with exit 2.
 - **An in-repo consumer takes the front door as a `Checker` parameter.**
   `command.Run` does; M5's server will. The umbrella is the only package
   that names `Check`.

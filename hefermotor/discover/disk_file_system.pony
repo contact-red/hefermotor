@@ -42,6 +42,13 @@ class DiskFileSystem is FileSystem
     if not Path.is_abs(path) then return Denied("not an absolute path") end
     match OpenFile(FilePath(_auth, path, _caps))
     | let f: File =>
+      // A device or a pipe has no length to read; ponyc refuses it
+      // with this message.
+      let regular = try f.info()?.file else false end
+      if not regular then
+        f.dispose()
+        return Denied("can't determine length of file")
+      end
       let content: String val = f.read_string(f.size())
       f.dispose()
       content

@@ -1,4 +1,9 @@
+use "files"
+use hm = "../hefermotor"
+use command = "../hefermotor/command"
+use discover = "../hefermotor/discover"
+
 actor Main
   new create(env: Env) =>
-    env.err.print("usage: hefermotor check [<dir>]")
-    env.exitcode(2)
+    command.Run(env, discover.DiskFileSystem(FileAuth(env.root)),
+      Path.cwd(), hm.Check)

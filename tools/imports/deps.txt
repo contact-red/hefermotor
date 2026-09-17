@@ -27,6 +27,8 @@ schedule:              source diagnostics parse discover export
                        promises collections
 command:               source diagnostics parse discover export schedule
                        cli promises collections
+command/_test.pony:    source diagnostics parse discover export schedule
+                       json promises collections pony_test
 hefermotor:            source diagnostics parse discover export schedule
                        command promises collections
 hefermotor/analyze_group.pony:
