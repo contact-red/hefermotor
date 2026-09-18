@@ -72,6 +72,15 @@ Every other entry cites ponyc at commit `6a0bfa80b`.
   the registered package back with no second error (1155-1157).
   hefermotor reports the file, fails the package and reports each `use`
   of a failed directory with the reason.
+- **Grammar recursion is bounded.** ponyc's parser is recursive descent
+  (`src/libponyc/ast/parserapi.h:16-19`) with no depth check in
+  `parserapi.c`, so a source nested deeply enough overflows its stack.
+  hefermotor
+  refuses a region past 2500 descents of the grammar with a diagnostic
+  at the token that would have opened it, skips to the nearest closing
+  token, item or member start, and parses on; the limit needs
+  `parse.StackNeed()` (3 MiB) of scheduler thread stack, below which
+  `hefermotor check` exits 2 before reading anything.
 
 ## Pinned in pony-lsp2
 

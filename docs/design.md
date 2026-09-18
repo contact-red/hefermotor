@@ -921,6 +921,64 @@ the lexer produced (T7).
    Measured over the stdlib: release `hefermotor check` 0.4 s to 0.21 s
    and peak RSS 155–185 MB to 83–92 MB, the per-symbol table rebuild
    gone; debug 0.70–0.80 s, within the noise of task 3's 0.69 s.
+5. **`skip_to`, the resync sets and the stack.** `_Parser.skip_to`
+   wraps every token up to the next one in its resync set in an
+   `NdError` and opens nothing when the current token is the end or in
+   the set, so an `NdError` holds at least one token and none in the
+   set; `error_and_recover` is `expected` then `skip_to`, and
+   `too_deep` records and skips the same way. `nesting_close` holds
+   `top_level` and the method starts as well as the closers and the
+   end, so a refusal inside a body costs that body and not the file.
+   `_Object` and `_Lambda` are guarded: an object literal in a default
+   argument of an object literal's method, and a lambda in a lambda's
+   parameter default or capture value, are cycles the term rule alone
+   counted once per level, so at 2500 descents they needed 3,712 KiB
+   and 2,896 KiB of stack in a release build; guarded, the heaviest
+   shape is an object literal in a `match` case (whose pattern rule
+   bypasses the term rule) at 2,023 KiB release, then a lambda type's
+   type-parameter default at 1,953 KiB, the object literal in a default
+   argument at 1,868 KiB and the FFI call at 1,560 KiB; the debug
+   maximum is 1,581 KiB, measured by bisecting `ulimit -s` over a
+   program parsing each shape 3000 deep. `parse.StackNeed()` is 3 MiB,
+   not Discussion #13's 2 MiB: 2 MiB would sit 25 KiB above the
+   heaviest shape and a compiler change could cross it. A refusal in a
+   member list or argument list is followed by one per sibling region
+   the enclosing loop parses at the limit, so an over-deep object
+   literal 3000 deep is refused 1,751 times; the counts are pinned per
+   shape in the recovery tests, and task 7's rule that `parse/nesting`
+   records are never dropped by the budget is to be read against them.
+   `StackCheck` in `command` reads the soft `RLIMIT_STACK`,
+   `PTHREAD_STACK_MIN` and the C library's default thread stack,
+   computes what the runtime computes, and `Run`, which takes it as a
+   collaborator so that the command tests do not read the shell's
+   limit, exits 2 naming `ulimit -s` before discovery when the result
+   is below the need; under glibc an unlimited soft limit gives 2 MiB
+   threads, so `ulimit -s unlimited` is refused too. `make test-stack`
+   runs the parse tests of the debug and the release build under
+   `ulimit -s 3072` and requires the release command to accept that
+   limit, refuse one KiB less and refuse an unlimited limit where the
+   hard limit allows one, which pins the Makefile's number to
+   `StackNeed`; every CI job that runs the command sets `ulimit -s
+   8192` when the limit is unlimited, and the test job runs `make
+   test-stack` after `make`. The recovery tests parse one input per
+   shape family 3000 deep (the nesting constructs `_Shapes` lists, the
+   chains, and two token floods 30,000 long) to a sound tree, refused
+   the pinned number of times where the shape descends and not where
+   it chains.
+
+   The `skip_to` sites as the code stands, each with why the loop
+   around it cannot spin now that `skip_to` may consume nothing:
+
+   | Site | Resync set | Consumes because | Parent |
+   |---|---|---|---|
+   | `_Module` loop: not `use`, not an entity keyword, not the end | `top_level` | the branches excluded `use` and the entities, which is the whole set | `NdModule` |
+   | `_Use`: the specifier is not a string or `@` (after `TkId` with the `=` absent and a top-level keyword or the end next, `_Use` returns without recovering) | `top_level` | may consume nothing (`use` then `use "z"`): then no `NdError`, and the module loop takes the token; `_Use` bumped `use` before | `NdUse` |
+   | `_Members` loop: not a field or method start, not `end`, not a top-level keyword, not the end | `member_or_top_level` | the loop and the branches excluded the whole set | `NdMembers` |
+   | `too_deep` in `_RawSeq`, `_Assignment`, `_Term`, `_ParamPattern`, `_ConstExpr`, `_IdSeq`, `_TypeRule`, `_Object`, `_Lambda` | `nesting_close` | the caller returns on refusal; a closer, member start or entity keyword current consumes nothing and no `NdError` opens; every loop reaching a guarded rule consumed a separator first or is `_RawSeq`, whose no-progress branch takes a token that ends nothing | whatever is open |
+   | `_RawSeq`'s no-progress branch: a token that starts no expression and ends no sequence | that token | it consumes it | `NdSeq` |
+
+   The use section rule, the members contexts and the `_ClassDef`
+   guard of Discussion #13's section 5 are task 10's.
 
 ### The ponyc-bump procedure
 
@@ -958,11 +1016,15 @@ all of the following, so that the pin is one commit throughout:
   ordinals.** The `groups` array carries each group's member directories,
   and the harnesses compare groups as sets of directories, never by
   ordinal.
-- **The POSIX assumption lives in four places**: the default search roots
+- **The POSIX assumption lives in five places**: the default search roots
   (`/usr/local/lib`, `/opt/local/lib`), `MemoryFileSystem`'s lexical path
   normalisation, the port of `is_path_absolute` and `is_path_relative`
   (whose Windows branches at `package.c:1721, 1742, 1754` are not ported),
-  and the stdlib slot derived from the `ponyc` on `PATH`.
+  the stdlib slot derived from the `ponyc` on `PATH`, and `_StackCheck`,
+  which reads `getrlimit(RLIMIT_STACK)` and `pthread_attr_getstacksize`
+  because the runtime sizes scheduler thread stacks from the soft limit
+  (`src/libponyrt/platform/threads.c:185-208`); Windows gives every
+  thread 1 MiB by default and is not handled.
 - **`EACCES` from disk has no CI test.** `DiskFileSystem` maps it to
   `Denied`; CI runs as root, and git cannot store a mode-000 file, so the
   mapping is exercised only by hand. The same holds for a `.pony` entry

@@ -454,12 +454,14 @@ class \nodoc\ iso _TestNestingPastTheLimitIsRefused is UnitTest
     guard's own diagnostic, and the tree still reprints byte for byte.
     The boundaries pin `_MaxNesting` at 2500: parentheses descend
     through both the sequence rule and the term rule, two per source
-    level, so they meet the limit at 1249; the other shapes descend
-    once per level, on top of the constant descents of their
-    enclosing declaration. Each shape exercises a different guarded
-    cycle — term, prefix, type, assignment, for-pattern, constant
-    expression — so a boundary that moves means a guard was added,
-    removed, or the limit changed. Far past the limit every shape
+    level, so they meet the limit at 1249, and an object literal in a
+    default argument or a lambda in a parameter default or capture
+    value descend through the term rule and their own guard; the other
+    shapes descend once per level, on top of the constant descents of
+    their enclosing declaration. Each shape exercises a different
+    guarded cycle — term, prefix, type, assignment, for-pattern,
+    constant expression, object, lambda — so a boundary that moves
+    means a guard was added, removed, or the limit changed. Far past the limit every shape
     must refuse with a diagnostic rather than crash, which the deep
     legs check.
     """
@@ -473,6 +475,11 @@ class \nodoc\ iso _TestNestingPastTheLimitIsRefused is UnitTest
       _Nested.for_patterns(2498), _Nested.for_patterns(2499))
     _check(h, "constexpr",
       _Nested.const_exprs(2496), _Nested.const_exprs(2497))
+    _check(h, "object", _Nested.objects(1249), _Nested.objects(1250))
+    _check(h, "lambda default",
+      _Nested.lambda_defaults(1248), _Nested.lambda_defaults(1249))
+    _check(h, "lambda capture",
+      _Nested.lambda_captures(1248), _Nested.lambda_captures(1249))
     _check_deep(h, "paren", _Nested.parens(20_000))
     _check_deep(h, "assign", _Nested.assigns(20_000))
     _check_deep(h, "idseq", _Nested.for_patterns(20_000))
@@ -542,10 +549,10 @@ class \nodoc\ iso _TestRefusalRecoveryResumes is UnitTest
 
 primitive \nodoc\ _Nested
   fun parens(depth: USize): String val =>
-    _body(recover val "(".mul(depth) + "1" + ")".mul(depth) end)
+    body(recover val "(".mul(depth) + "1" + ")".mul(depth) end)
 
   fun prefixes(depth: USize): String val =>
-    _body(recover val "not ".mul(depth) + "true" end)
+    body(recover val "not ".mul(depth) + "true" end)
 
   fun types(depth: USize): String val =>
     recover val
@@ -596,7 +603,19 @@ primitive \nodoc\ _Nested
       out
     end
 
-  fun _body(expr: String val): String val =>
+  fun objects(depth: USize): String val =>
+    body(recover val
+      "object fun f(x: A = ".mul(depth) + "1" + ") end".mul(depth) end)
+
+  fun lambda_defaults(depth: USize): String val =>
+    body(recover val
+      "{(x: A = ".mul(depth) + "1" + ") => 1 }".mul(depth) end)
+
+  fun lambda_captures(depth: USize): String val =>
+    body(recover val
+      "{()(x = ".mul(depth) + "1" + ") => 1 }".mul(depth) end)
+
+  fun body(expr: String val): String val =>
     recover val
       let out = String(expr.size() + 64)
       out.append("actor Main\n  new create(env: Env) =>\n    ")

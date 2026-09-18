@@ -113,15 +113,16 @@ class _Parser
     """
     Enter one level of grammar recursion; at the limit, refuse the
     region with a diagnostic naming `what`, resynchronise to the
-    nearest closing token, and leave the depth balanced. Returns
-    whether it refused, and a guarded rule returns without parsing
-    further when it did — its other exits still `ascend`.
+    nearest closing token, item or member start, and leave the depth
+    balanced. Returns whether it refused, and a guarded rule returns
+    without parsing further when it did — its other exits still
+    `ascend`.
     """
     if descend() then
-      error_and_recover(
+      expected(
         "a less deeply nested " + what + " (grammar depth limit " +
-          _MaxNesting().string() + ")",
-        _TokenSets.nesting_close())
+          _MaxNesting().string() + ")")
+      skip_to(_TokenSets.nesting_close())
       ascend()
       true
     else
@@ -356,7 +357,7 @@ class _Parser
 
   fun ref error_and_recover(what: String val, resync: Array[TokenKind] box) =>
     """
-    Wrap everything up to the next token in `resync` in an `NdError` node.
+    Record that `what` was expected here, then `skip_to(resync)`.
 
     This is ponyc's `RESTART`, which names the tokens a rule can resume at.
     ponyc uses it to keep reporting further errors; here it also bounds what
@@ -364,12 +365,21 @@ class _Parser
     with it.
     """
     expected(what)
-    if eof() then
+    skip_to(resync)
+
+  fun ref skip_to(resync: Array[TokenKind] box) =>
+    """
+    Wrap every token up to the next one in `resync` in an `NdError`
+    node. Opens nothing when the current token is the end or is in
+    `resync`: an `NdError` holds at least one token and none in
+    `resync`. So a rule that calls this from a branch whose current
+    token may be in `resync` must have consumed something before, or
+    the loop around it spins.
+    """
+    if eof() or at_any(resync) then
       return
     end
     start(NdError)
-    // Always consume at least one token, or a rule whose recovery set
-    // contains the current token would spin.
     bump()
     while not (eof() or at_any(resync)) do
       bump()

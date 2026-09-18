@@ -16,17 +16,14 @@ source_check := tools/imports/check.sh
 source_check_testdata := tools/imports/testdata
 grammar_guard := tools/grammar/guard.py
 grammar_guard_testdata := tools/grammar/testdata
+# parse.StackNeed() in KiB; test-stack fails when the two differ.
+stack_need_kib := 3072
+stack_fixture := hefermotor/discover/testdata/roots
 
 ifdef config
 	ifeq (,$(filter $(config),debug release))
 		$(error Unknown configuration "$(config)")
 	endif
-endif
-
-ifeq ($(config),release)
-	PONYC = $(COMPILE_WITH)
-else
-	PONYC = $(COMPILE_WITH) --debug
 endif
 
 SOURCE_FILES := $(shell find $(SRC_DIR) -name '*.pony')
@@ -45,13 +42,45 @@ unit-tests: $(tests_binary)
 
 cli: $(cli_binary)
 
-$(tests_binary): $(SOURCE_FILES) | $(BUILD_DIR)
-	$(GET_DEPENDENCIES_WITH)
-	$(PONYC) -o $(BUILD_DIR) -b hefermotor_tests $(SRC_DIR)
+# The parse tests of both builds under the smallest stack the command
+# accepts, each run checked to have found tests; then the release
+# command over a fixture that checks clean must accept that stack,
+# refuse one KiB less, and refuse an unlimited limit where the hard
+# limit allows one. That pins stack_need_kib to parse.StackNeed().
+test-stack: build/debug/hefermotor_tests build/release/hefermotor_tests \
+  build/release/hefermotor
+	ulimit -s $(stack_need_kib) && \
+	  build/debug/hefermotor_tests --sequential --only=parse/ \
+	  > build/debug/test-stack.txt && \
+	  grep -q "Passed: [1-9]" build/debug/test-stack.txt
+	ulimit -s $(stack_need_kib) && \
+	  build/release/hefermotor_tests --sequential --only=parse/ \
+	  > build/release/test-stack.txt && \
+	  grep -q "Passed: [1-9]" build/release/test-stack.txt
+	cd $(stack_fixture) && ulimit -s $(stack_need_kib) && \
+	  $(CURDIR)/build/release/hefermotor check real --path=.
+	cd $(stack_fixture) && ulimit -s $$(( $(stack_need_kib) - 1 )) && \
+	  $(CURDIR)/build/release/hefermotor check real --path=. \
+	  2> $(CURDIR)/build/release/test-stack-refusal.txt; \
+	  test $$? -eq 2 && \
+	  grep -q "KiB stack" $(CURDIR)/build/release/test-stack-refusal.txt
+	if [ "$$(ulimit -H -s)" = unlimited ]; then \
+	  cd $(stack_fixture) && ulimit -s unlimited && \
+	  $(CURDIR)/build/release/hefermotor check real --path=. \
+	  2> $(CURDIR)/build/release/test-stack-unlimited.txt; \
+	  test $$? -eq 2 && grep -q "unlimited" \
+	  $(CURDIR)/build/release/test-stack-unlimited.txt; \
+	fi
 
-$(cli_binary): $(SOURCE_FILES) $(CLI_SOURCE_FILES) | $(BUILD_DIR)
+build/%/hefermotor_tests: $(SOURCE_FILES) | build/%
 	$(GET_DEPENDENCIES_WITH)
-	$(PONYC) -o $(BUILD_DIR) -b hefermotor $(CLI_SRC_DIR)
+	$(COMPILE_WITH) $(if $(filter release,$*),,--debug) \
+	  -o build/$* -b hefermotor_tests $(SRC_DIR)
+
+build/%/hefermotor: $(SOURCE_FILES) $(CLI_SOURCE_FILES) | build/%
+	$(GET_DEPENDENCIES_WITH)
+	$(COMPILE_WITH) $(if $(filter release,$*),,--debug) \
+	  -o build/$* -b hefermotor $(CLI_SRC_DIR)
 
 # Each check must first exit 1 over its own test tree with exactly the
 # expected report before its result on the real tree is trusted.
@@ -75,7 +104,7 @@ regen-token-kinds:
 
 clean:
 	$(CLEAN_DEPENDENCIES_WITH)
-	rm -rf $(BUILD_DIR)
+	rm -rf build
 
 $(docs_dir): $(SOURCE_FILES)
 	rm -rf $(docs_dir)
@@ -89,9 +118,9 @@ TAGS:
 
 all: test
 
-$(BUILD_DIR):
-	mkdir -p $(BUILD_DIR)
+build/%:
+	mkdir -p $@
 
 .PHONY: all cli clean determinism differential docs lint-source \
-  regen-token-kinds TAGS test \
+  regen-token-kinds TAGS test test-stack \
   unit-tests

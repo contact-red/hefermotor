@@ -25,6 +25,8 @@ parse/_test_tree.pony:
                        source diagnostics collections itertools pony_test
 parse/_test_grammar.pony:
                        source diagnostics collections pony_test
+parse/_test_recovery.pony:
+                       source diagnostics pony_test
 discover:              sort source diagnostics parse collections
 discover/disk_file_system.pony:
                        source diagnostics parse files collections
@@ -38,6 +40,8 @@ schedule:              sort source diagnostics parse discover export
                        promises collections
 command:               sort source diagnostics parse discover export schedule
                        cli promises collections
+command/_stack_check.pony:
+                       parse @
 command/_test.pony:    sort source diagnostics parse discover export schedule
                        json promises collections pony_test
 hefermotor:            sort source diagnostics parse discover export schedule

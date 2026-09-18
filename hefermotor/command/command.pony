@@ -28,8 +28,9 @@ primitive Run
   `base` is the absolute directory a relative target, search root or
   `PATH` entry resolves against; for the binary it is the process's
   working directory. Exit 0 with nothing to report; 1 when the run
-  reported at least one diagnostic; 2 when it could not start, `base`
-  not being absolute included; 70 when the report holds an `internal/*`
+  reported at least one diagnostic; 2 when it could not start, which
+  includes `base` not being absolute and `stack` refusing; 70 when the
+  report holds an `internal/*`
   diagnostic. `help` prints the usage to stdout and exits 0. The exit
   code is 70 from before the check starts until the report arrives, so
   a process that ends before the report exits as a crash. The returned
@@ -39,7 +40,7 @@ primitive Run
   and the code stays 70.
   """
   fun apply(env: Env, fs: discover.FileSystem box, base: String,
-    check: Checker)
+    check: Checker, stack: StackLimit)
     : Promise[I32]
   =>
     if not base.at("/") then
@@ -58,6 +59,11 @@ primitive Run
         env.err.print(u.string())
         return _ended(env, 2)
       end
+    match stack()
+    | let s: StackTooSmall =>
+      env.err.print(s.string())
+      return _ended(env, 2)
+    end
     let program =
       match discover.Discover(fs, cmd.search_roots, base, cmd.target)
       | let p: discover.Program => p
