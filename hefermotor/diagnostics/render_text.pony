@@ -11,11 +11,13 @@ class RenderText
   """
   Renders diagnostics as ponyc prints its errors: an `Error:` line, then
   `file:line:col: message` with a 1-based line and a 1-based byte column,
-  then the source line as written, then a caret under the column, with the
-  line's tabs copied into the padding so the caret lands under the column
-  at any tab width. A diagnostic about a whole file gets `file: message`;
-  one about nothing gets the message alone. A range in a file whose text
-  the lookup cannot supply is rendered as the whole file, `file: message`.
+  then the source line, then a caret under the column, with the line's
+  tabs copied into the padding so the caret lands under the column at
+  any tab width. A line longer than 200 bytes is cut to 200 bytes around
+  the column, `...` marking each cut edge. A diagnostic about a whole
+  file gets `file: message`; one about nothing gets the message alone. A
+  range in a file whose text the lookup cannot supply is rendered as the
+  whole file, `file: message`.
   The source line is the line's content before its `\n` and any `\r`
   before it.
 
@@ -56,13 +58,16 @@ class RenderText
         out.append(": ")
         out.append(d.cause.message())
         out.push('\n')
-        let text: String = index.source.substring(
-          index.line_start(line).isize(), index.line_end(line).isize())
-        out.append(text)
+        // A trim of a val string shares its buffer: the line is not
+        // copied before it is cut to the window.
+        let text: String = index.source.trim(
+          index.line_start(line), index.line_end(line))
+        (let shown, let caret) = _Window(text, column)
+        out.append(shown)
         out.push('\n')
         var i: USize = 0
-        while i < column do
-          let c = try text(i)? else ' ' end
+        while i < caret do
+          let c = try shown(i)? else ' ' end
           out.push(if c == '\t' then '\t' else ' ' end)
           i = i + 1
         end
@@ -87,3 +92,29 @@ class RenderText
       | None => None
       end
     end
+
+primitive _Window
+  """
+  The part of a source line a rendering shows: the whole line when it is
+  at most `width` bytes, otherwise `width` bytes of the line that include
+  the caret, centred on it where the line allows, with `...` at each cut
+  edge. Returns the text to print and the caret's column within it. The
+  cut is at bytes, as the column is, so an edge can fall inside a
+  multibyte character.
+  """
+  fun width(): USize => 200
+
+  fun apply(text: String, column: USize): (String, USize) =>
+    if text.size() <= width() then return (text, column) end
+    let half = width() / 2
+    let start =
+      if column < half then 0
+      else (column - half).min(text.size() - width())
+      end
+    let stop = start + width()
+    let shown = recover iso String end
+    if start > 0 then shown.append("...") end
+    shown.append(text.substring(start.isize(), stop.isize()))
+    if stop < text.size() then shown.append("...") end
+    let caret = (column - start) + (if start > 0 then 3 else 0 end)
+    (consume shown, caret)

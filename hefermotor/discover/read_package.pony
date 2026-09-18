@@ -1,4 +1,4 @@
-use "collections"
+use sort = "../sort"
 use source = "../source"
 
 class val UnreadableDirectory
@@ -85,7 +85,7 @@ primitive ReadPackage
     | let denied: Denied => return UnreadableDirectory(denied.why)
     end
     if names.size() == 0 then return NoPonySources end
-    Sort[Array[String], String](names)
+    sort.MergeSort[String](names)
     let files = recover iso Array[source.SourceFile] end
     let unreadable = recover iso Array[(String, String)] end
     for name in names.values() do

@@ -1,7 +1,7 @@
-use "collections"
 use diag = "../diagnostics"
 use discover = "../discover"
 use export = "../export"
+use sort = "../sort"
 use source = "../source"
 
 class val Report
@@ -55,7 +55,7 @@ class val Report
     """
     let hashes = Array[source.ContentHash]
     for e in exports.values() do hashes.push(e.data.hash) end
-    Sort[Array[source.ContentHash], source.ContentHash](hashes)
+    sort.MergeSort[source.ContentHash](hashes)
     let builder: source.HashBuilder ref = source.HashBuilder
     for h in hashes.values() do builder.field_hash(h) end
     builder.done()

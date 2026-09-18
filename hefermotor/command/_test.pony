@@ -7,6 +7,7 @@ use discover = "../discover"
 use export = "../export"
 use parse = "../parse"
 use schedule = "../schedule"
+use sort = "../sort"
 use source = "../source"
 
 actor \nodoc\ Main is TestList
@@ -251,7 +252,7 @@ primitive \nodoc\ _AssertFixtureJson
     let arr = doc("groups")? as JSONArray
     for i in Range(0, arr.size()) do
       let members = _Json.strings(arr(i)?)?
-      Sort[Array[String], String](members)
+      sort.MergeSort[String](members)
       groups.set("|".join(members.values()))
     end
     h.assert_eq[USize](4, groups.size())

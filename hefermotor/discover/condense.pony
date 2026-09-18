@@ -1,4 +1,5 @@
 use "collections"
+use sort = "../sort"
 
 primitive Condense
   """
@@ -69,7 +70,7 @@ class _Nodes
       by_path(p.dir.path) = p
       dirs.push(p.dir)
     end
-    Sort[Array[PackageDir], PackageDir](dirs)
+    sort.MergeSort[PackageDir](dirs)
     let frozen = recover iso Array[Package] end
     let index = Map[String, USize]
     for d in dirs.values() do
@@ -90,7 +91,7 @@ class _Nodes
     for s in sets.values() do
       let targets = Array[USize]
       for t in s.values() do targets.push(t) end
-      Sort[Array[USize], USize](targets)
+      sort.MergeSort[USize](targets)
       out.push(targets)
     end
 
@@ -256,7 +257,7 @@ primitive _Needs
       end
       let sorted = Array[USize]
       for d in all.values() do sorted.push(d) end
-      Sort[Array[USize], USize](sorted)
+      sort.MergeSort[USize](sorted)
       let frozen = recover iso Array[USize] end
       for d in sorted.values() do frozen.push(d) end
       closures.push(consume frozen)

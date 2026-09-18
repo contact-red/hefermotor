@@ -75,11 +75,12 @@ primitive DiagnosticOrder
     | (Nowhere, Nowhere) => Equal
     | (Nowhere, _) => Less
     | (_, Nowhere) => Greater
-    | (let x: FileOnly, let y: FileOnly) => x.path().compare(y.path())
+    | (let x: FileOnly, let y: FileOnly) =>
+      _PathOrder(x.dir, x.name, y.dir, y.name)
     | (let _: FileOnly, let _: Span) => Less
     | (let _: Span, let _: FileOnly) => Greater
     | (let x: Span, let y: Span) =>
-      match x.path().compare(y.path())
+      match _PathOrder(x.dir, x.name, y.dir, y.name)
       | Equal =>
         match x.start.compare(y.start)
         | Equal => x.length.compare(y.length)
@@ -87,4 +88,40 @@ primitive DiagnosticOrder
         end
       | let c: Compare => c
       end
+    end
+
+primitive _PathOrder
+  """
+  The order of two files' paths, `dir + "/" + name` compared byte by
+  byte as `String.compare` does, without building either path. Two
+  locations built from one file share its `dir` and `name` objects and
+  compare equal at once.
+  """
+  fun apply(dir_a: String, name_a: String, dir_b: String, name_b: String)
+    : Compare
+  =>
+    if (dir_a is dir_b) and (name_a is name_b) then return Equal end
+    let len_a = (dir_a.size() + 1) + name_a.size()
+    let len_b = (dir_b.size() + 1) + name_b.size()
+    let shorter = len_a.min(len_b)
+    var i: USize = 0
+    while i < shorter do
+      let x = _byte(dir_a, name_a, i)
+      let y = _byte(dir_b, name_b, i)
+      if x < y then return Less end
+      if x > y then return Greater end
+      i = i + 1
+    end
+    len_a.compare(len_b)
+
+  fun _byte(dir: String, name: String, i: USize): U8 =>
+    """
+    Byte `i` of `dir + "/" + name`, for `i` inside it.
+    """
+    if i < dir.size() then
+      try dir(i)? else _Unreachable(); 0 end
+    elseif i == dir.size() then
+      '/'
+    else
+      try name(i - (dir.size() + 1))? else _Unreachable(); 0 end
     end
