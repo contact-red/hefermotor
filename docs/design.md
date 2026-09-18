@@ -879,8 +879,9 @@ the lexer produced (T7).
    share (task 4 makes the tables fields); the deepest grammar
    recursion over the stdlib is 23. The 2500 limit refuses before a
    crash only when each scheduler thread has about 2.6 MB of stack:
-   under glibc `ulimit -s 2048` a file of 2100 nested `object fun f(x:
-   A = ` (twelve frames per level, the heaviest shape) segfaults, and
+   under glibc `ulimit -s 2048` a file of 2100 nested default-argument
+   objects (`object fun f(x: A =` repeated; twelve frames per level,
+   the heaviest shape) segfaults, and
    under musl with an unlimited limit the runtime's 128 KiB threads
    crash at 150 nested parentheses; task 5 adds the refusal Divergence
    5 of Discussion #13 describes.
