@@ -18,6 +18,8 @@ diagnostics:           collections
 diagnostics/_test.pony:
                        sort collections pony_test pony_check
 parse:                 source diagnostics collections
+parse/_test_lexer.pony:
+                       source diagnostics collections itertools pony_test
 discover:              sort source diagnostics parse collections
 discover/disk_file_system.pony:
                        source diagnostics parse files collections

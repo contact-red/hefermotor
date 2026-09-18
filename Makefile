@@ -60,6 +60,13 @@ lint-source: | $(BUILD_DIR)
 	diff $(BUILD_DIR)/source-check.txt $(source_check_testdata)/expected.txt
 	$(source_check) . tools/imports/deps.txt
 
+# A step of the ponyc-bump procedure in docs/design.md.
+regen-token-kinds:
+	test -n "$(PONYC_SRC)" || \
+	  { echo "set PONYC_SRC=<ponyc checkout>"; exit 2; }
+	tools/tokens/gen_token_kinds.py "$(PONYC_SRC)" \
+	  $(SRC_DIR)/parse/token_kind.pony
+
 clean:
 	$(CLEAN_DEPENDENCIES_WITH)
 	rm -rf $(BUILD_DIR)
@@ -79,5 +86,6 @@ all: test
 $(BUILD_DIR):
 	mkdir -p $(BUILD_DIR)
 
-.PHONY: all cli clean determinism differential docs lint-source TAGS test \
+.PHONY: all cli clean determinism differential docs lint-source \
+  regen-token-kinds TAGS test \
   unit-tests

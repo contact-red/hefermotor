@@ -2,3 +2,4 @@ build/
 *.swp
 lock.json
 super-linter.log
+__pycache__/
