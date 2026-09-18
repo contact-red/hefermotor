@@ -20,6 +20,7 @@ diagnostics/_test.pony:
 parse:                 source diagnostics collections
 parse/_test_lexer.pony:
                        source diagnostics collections itertools pony_test
+                       pony_check
 parse/_test_tree.pony:
                        source diagnostics collections itertools pony_test
 parse/_test_grammar.pony:

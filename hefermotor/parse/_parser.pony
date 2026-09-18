@@ -46,7 +46,7 @@ class _Parser
   item happens to follow.
   """
   let _source: String val
-  let _stream: _TokenStream val
+  embed _stream: _TokenStream
   var _elems: Array[(SyntaxKind, U32, U32)] iso =
     recover Array[(SyntaxKind, U32, U32)] end
     """
@@ -66,6 +66,7 @@ class _Parser
     """
     Byte offset of `_index`.
     """
+  var _eof_emitted: Bool = false
   var _depth: USize = 0
     """
     Grammar recursion depth, counted by `descend`/`ascend`. Counted
@@ -76,7 +77,7 @@ class _Parser
 
   new create(source': String val) =>
     _source = source'
-    _stream = recover val _TokenStream(source') end
+    _stream = _TokenStream(source')
 
   fun tag _is_trivia(k: TokenKind): Bool =>
     match k
@@ -85,28 +86,20 @@ class _Parser
       false
     end
 
-  fun _peek(from: USize): (TokenKind, USize, USize) =>
+  fun ref _peek(): (TokenKind, USize, USize) =>
     """
-    The next significant token at or after `from`: its kind, its index, and
-    the byte offset it starts at. `TkEof` when there is none.
+    The next significant token at or after the cursor: its kind, its
+    index, and the byte offset it starts at. `TkEof` when there is none.
     """
-    var i = from
+    var i = _index
     var byte = _offset
-    var j = _index
-    // Walk forward from the cursor, accumulating width.
-    while j < i do
-      try byte = byte + _stream(j)?._2.usize() end
-      j = j + 1
-    end
-    while i < _stream.size() do
-      try
-        (let k, let w) = _stream(i)?
-        if not _is_trivia(k) then return (k, i, byte) end
-        byte = byte + w.usize()
-      end
+    while true do
+      (let k, let w) = _stream.token(i)
+      if not _is_trivia(k) then return (k, i, byte) end
+      byte = byte + w.usize()
       i = i + 1
     end
-    (TkEof, _stream.size(), byte)
+    (TkEof, i, byte)
 
   fun ref descend(): Bool =>
     """
@@ -142,39 +135,23 @@ class _Parser
     """
     _depth = _depth - 1
 
-  fun current(): TokenKind =>
+  fun ref current(): TokenKind =>
     """
     The kind of the next significant token, without consuming anything.
     """
-    _peek(_index)._1
+    _peek()._1
 
-  fun nth(n: USize): TokenKind =>
-    """
-    The kind of the significant token `n` places ahead, `nth(0)` being
-    `current`.
-    """
-    var i = _index
-    var seen: USize = 0
-    while true do
-      (let k, let index', _) = _peek(i)
-      if seen == n then return k end
-      if k is TkEof then return TkEof end
-      seen = seen + 1
-      i = index' + 1
-    end
-    TkEof
-
-  fun at(k: TokenKind): Bool =>
+  fun ref at(k: TokenKind): Bool =>
     current() is k
 
-  fun at_any(kinds: Array[TokenKind] box): Bool =>
+  fun ref at_any(kinds: Array[TokenKind] box): Bool =>
     let c = current()
     for k in kinds.values() do
       if c is k then return true end
     end
     false
 
-  fun eof(): Bool =>
+  fun ref eof(): Bool =>
     current() is TkEof
 
   fun ref _emit(k: SyntaxKind, w: USize) =>
@@ -189,15 +166,11 @@ class _Parser
     A rule that parses a sequence calls this between elements, so that what
     separates them belongs to the sequence rather than to either side.
     """
-    while _index < _stream.size() do
-      try
-        (let k, let w) = _stream(_index)?
-        if not _is_trivia(k) then return end
-        _emit(k, w.usize())
-        _index = _index + 1
-      else
-        return
-      end
+    while true do
+      (let k, let w) = _stream.token(_index)
+      if not _is_trivia(k) then return end
+      _emit(k, w.usize())
+      _index = _index + 1
     end
 
   fun ref start(k: NodeKind) =>
@@ -331,16 +304,18 @@ class _Parser
 
   fun ref bump() =>
     """
-    Emit the next significant token, and any trivia before it.
+    Emit the next significant token, and any trivia before it. At the
+    end of the source the first call emits the `TkEof` and later calls
+    emit nothing.
     """
     flush_trivia()
-    if _index < _stream.size() then
-      try
-        (let k, let w) = _stream(_index)?
-        _emit(k, w.usize())
-        _index = _index + 1
-      end
+    (let k, let w) = _stream.token(_index)
+    if k is TkEof then
+      if _eof_emitted then return end
+      _eof_emitted = true
     end
+    _emit(k, w.usize())
+    _index = _index + 1
 
   fun ref expect(k: TokenKind, what: String val): Bool =>
     """
@@ -372,7 +347,7 @@ class _Parser
     """
     Record that `what` was expected here. Consumes nothing.
     """
-    (let found, _, let byte) = _peek(_index)
+    (let found, _, let byte) = _peek()
     _diagnostics.push(
       SyntaxDiagnostic(
         byte,
