@@ -14,6 +14,7 @@ groups in a canonical order. Every path reaches the disk through a
 use "collections"
 use diag = "../diagnostics"
 use parse = "../parse"
+use sort = "../sort"
 use source = "../source"
 
 primitive Discover
@@ -205,7 +206,7 @@ class _Loader
     for p in _packages.values() do packages.push(p) end
     let edges = recover iso Array[(PackageDir, PackageDir)] end
     for e in _edges.values() do edges.push(e) end
-    Sort[Array[diag.Diagnostic], diag.Diagnostic](_diagnostics)
+    sort.MergeSort[diag.Diagnostic](_diagnostics)
     let diagnostics = recover iso Array[diag.Diagnostic] end
     for d in _diagnostics.values() do diagnostics.push(d) end
     Program(Condense(consume packages, consume edges), _builtin, root,

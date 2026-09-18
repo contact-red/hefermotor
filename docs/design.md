@@ -333,7 +333,7 @@ Constraints on M1 fixed now:
 | A diagnostic's file | `(dir, name)` with `path()` derived; a cached entry stores `name` and offsets, never `dir`; the order sorts by `path()` |
 | What discovery may read | anything `find_path` reaches, as ponyc does (section 5); dependencies trusted as compiling them would; confinement is a policy inside `Locate`/`LocateTarget` if ever wanted |
 | How phases are kept pure | capabilities enforce `val` in, `val` out, no `?`; `tools/imports/deps.txt` and the five rules of `tools/imports/check.sh`, checked by `make lint-source` under `make test` after the check rejects its own `testdata/`, cover what they do not; `time`, `random`, `process`, `net` banned everywhere; `files` only in the four non-phase files `deps.txt` lists; `use @` and FFI calls only in a package's `_unreachable.pony` |
-| Diagnostic ordering | one sort in `_ReadySet.report()` under `DiagnosticOrder`, a total order over what a renderer sees; the stdlib `Sort` is quadratic on sorted input and is replaced at M3's first heavy emitter |
+| Diagnostic ordering | one sort in `_ReadySet.report()` under `DiagnosticOrder`, a total order over what a renderer sees; the stdlib `Sort` is quadratic and its recursion depth is O(n) on sorted input, and after M1 the report's input is per-file sorted lists concatenated, so `sort.MergeSort` replaces it at every sort site in M1 (its first task), not at M3 as first planned |
 | Error vocabulary | cause objects behind `DiagnosticCause`, `InternalError` among them; closed unions per layer where a field or return admits exactly those cases (`LocateFailure`, `ReadFailure` with `FilesUnreadable`, `LoadFailure`, `BuiltinFailure`, `_CompleteError`) |
 | Run could not start | a usage error, `BuiltinNotFound(reason)` or `BuiltinNotLoaded(dir, reason)`, exit 2; everything about the input is a diagnostic |
 | Exit codes | 0 / 1 / 2; the CLI presets 70 before scheduling; the fulfil handler sets 70 when `has_internal_errors()`, else 1 or 0; `_Unreachable()` exits 70; `has_errors` is "at least one diagnostic" until severity exists |
@@ -477,8 +477,7 @@ chunk (an option). `BodyResult` carries the typed spans M5's
 hover-type-at-span reads. Body checking consumes signatures through
 export data even for in-group members. `ContentHash` at file, package,
 export and entity frequency is fine; it must not become the per-node
-identity inside a tree. The stdlib `Sort` is replaced at the first
-heavy emitter. The actor-per-task versus bounded-pool question is
+identity inside a tree. The actor-per-task versus bounded-pool question is
 decided with the first heavy fan-out caller, on task 9's numbers.
 
 ### Deliberately open for M4
@@ -786,6 +785,46 @@ consuming group; M5's hover must be answerable from an unchanged
 dependency's export). Divergence 15 is kept as the record of what M2
 adds and why.
 
+## M1
+
+The M1 design is Discussion #13; this section records what each M1
+task decided or measured, and the working answers to the design's seven
+open tensions (Discussion #13, section 11) until Red rules on them.
+
+Working answers taken at the start of M1, each the direction the design's
+evaluation leaned and each reversible in one place: the `.cc` corpus is
+quarried behind `PONYC_SRC` (T1); a missing closer is always reported at
+the opener, with no suppression rule (T2); the per-file budget is 500
+kept `expected` and `unterminated` records (T3); CI clones ponyc at a
+pinned commit for the drift gate and the test corpus (T4); a file over
+`U32.max_value()` bytes is refused at the read (T5); the depth-refusal
+region stays an `NdError` (T6); a locator holding a raw newline is what
+the lexer produced (T7).
+
+1. **The sort, the path order and the renderer window.** `sort.MergeSort`
+   is a stable bottom-up merge sort with one auxiliary array and no
+   recursion, used at every sort site. The stdlib `Sort` takes its
+   pivots from the ends: on presorted input it recurses as deep as the
+   array and runs in quadratic time. Measured for Discussion #13
+   (section 10): 29.7 s and 30 GB for 233,000 presorted diagnostics, and
+   a segfault at 200,000 presorted strings under an 8 MiB stack; the
+   review of this task measured the same inputs under `MergeSort` at
+   126 ms and 139 ms in a release build with flat memory. After M1 the
+   report's input is per-file sorted lists concatenated.
+   `DiagnosticOrder` compares two files' paths through `_PathOrder`,
+   which returns `Equal` at once for two locations that share a file's
+   `dir` and `name` objects and otherwise walks the joined path byte by
+   byte without building it; the order is unchanged. `RenderText` prints
+   at most 200 bytes of a source line around the caret, with `...` at
+   each cut edge, and takes the line as a shared view of the source
+   rather than a copy, so a one-line file with many diagnostics renders
+   in time linear in the diagnostics rather than in their product with
+   the line. The sort tests sort 300,000 presorted and 100,000 shuffled
+   `USize` entries, sizes above the 200,000 at which the stdlib sort
+   crashed; `USize` stands in for diagnostics because the sort's passes
+   do not depend on the element type; the sorts themselves take about
+   150 ms in a debug build.
+
 ## Rules and notes with no other home
 
 - **The import allowlist is `tools/imports/deps.txt`**, checked by
@@ -827,10 +866,10 @@ adds and why.
   `SourceFile`'s constructor-computed hash is what M5 would change to
   reuse an unchanged file without rehashing it.
 - **`collections.Sort` is a dual-pivot quicksort that is quadratic on
-  sorted input** (`packages/collections/sort.pony:49-79`), and
-  `_ReadySet.report()` sorts diagnostics that arrive nearly sorted. The
-  bound is fine at M0's volumes; revisit at M3 when a corpus run can
-  produce enough diagnostics to matter.
+  sorted input** (`packages/collections/sort.pony:49-79`); nothing in
+  hefermotor calls it. `sort.MergeSort` is the one sort, and a new
+  array whose size or order the checked tree controls is sorted with
+  it.
 - **What discovery may read**: anything `find_path` reaches, as ponyc
   does: absolute locators, the base directory for the root and
   `builtin`, the `pony_packages` walk to `/` before the search roots (so

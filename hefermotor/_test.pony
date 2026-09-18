@@ -1,5 +1,6 @@
 use "files"
 use "pony_test"
+use sort = "./sort"
 use source = "./source"
 use diag = "./diagnostics"
 use parse = "./parse"
@@ -13,6 +14,7 @@ actor \nodoc\ Main is TestList
   new make() => None
 
   fun tag tests(test: PonyTest) =>
+    sort.Main.make().tests(test)
     source.Main.make().tests(test)
     diag.Main.make().tests(test)
     parse.Main.make().tests(test)

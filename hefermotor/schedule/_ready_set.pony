@@ -2,6 +2,7 @@ use "collections"
 use diag = "../diagnostics"
 use discover = "../discover"
 use export = "../export"
+use sort = "../sort"
 
 primitive _NotRunning
 primitive _ExportsMismatch
@@ -147,12 +148,12 @@ class _ReadySet
     let diagnostics = Array[diag.Diagnostic]
     diagnostics.append(_program.diagnostics)
     diagnostics.append(_diagnostics)
-    Sort[Array[diag.Diagnostic], diag.Diagnostic](diagnostics)
+    sort.MergeSort[diag.Diagnostic](diagnostics)
     let sorted = recover iso Array[diag.Diagnostic] end
     for d in diagnostics.values() do sorted.push(d) end
     let dirs = Array[discover.PackageDir]
     for dir in _exports.keys() do dirs.push(dir) end
-    Sort[Array[discover.PackageDir], discover.PackageDir](dirs)
+    sort.MergeSort[discover.PackageDir](dirs)
     let exports = recover iso Array[export.PackageExport] end
     for dir in dirs.values() do
       try exports.push(_exports(dir)?) else _Unreachable() end

@@ -11,29 +11,33 @@
 !banned:               time random process net
 !phase:                parse discover export hefermotor/analyze_group.pony
 !hash64-only:          source/hash_builder.pony source/source_file.pony
+sort:
+sort/_test.pony:       collections pony_test
 source:                format
 diagnostics:           collections
+diagnostics/_test.pony:
+                       sort collections pony_test pony_check
 parse:                 source diagnostics collections
-discover:              source diagnostics parse collections
+discover:              sort source diagnostics parse collections
 discover/disk_file_system.pony:
                        source diagnostics parse files collections
-discover/_test.pony:   source diagnostics parse files collections
+discover/_test.pony:   sort source diagnostics parse files collections
                        pony_test pony_check
 discover/_test_program.pony:
-                       source diagnostics parse files collections
+                       sort source diagnostics parse files collections
                        pony_test
 export:                source diagnostics discover collections
-schedule:              source diagnostics parse discover export
+schedule:              sort source diagnostics parse discover export
                        promises collections
-command:               source diagnostics parse discover export schedule
+command:               sort source diagnostics parse discover export schedule
                        cli promises collections
-command/_test.pony:    source diagnostics parse discover export schedule
+command/_test.pony:    sort source diagnostics parse discover export schedule
                        json promises collections pony_test
-hefermotor:            source diagnostics parse discover export schedule
+hefermotor:            sort source diagnostics parse discover export schedule
                        command promises collections
 hefermotor/analyze_group.pony:
                        source diagnostics discover export collections
-hefermotor/_test.pony: source diagnostics parse discover export schedule
+hefermotor/_test.pony: sort source diagnostics parse discover export schedule
                        command promises files collections pony_test
 hefermotor_main:       hefermotor command discover files
 */_unreachable.pony:   @

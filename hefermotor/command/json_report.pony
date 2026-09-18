@@ -3,6 +3,7 @@ use diag = "../diagnostics"
 use discover = "../discover"
 use export = "../export"
 use schedule = "../schedule"
+use sort = "../sort"
 
 primitive JsonReport
   """
@@ -94,7 +95,7 @@ primitive JsonReport
         dirs.push(m.dir)
       end
     end
-    Sort[Array[discover.PackageDir], discover.PackageDir](dirs)
+    sort.MergeSort[discover.PackageDir](dirs)
     let out = Array[discover.Package]
     for d in dirs.values() do
       try out.push(by_dir(d)?) else _Unreachable() end
