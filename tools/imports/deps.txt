@@ -20,6 +20,10 @@ diagnostics/_test.pony:
 parse:                 source diagnostics collections
 parse/_test_lexer.pony:
                        source diagnostics collections itertools pony_test
+parse/_test_tree.pony:
+                       source diagnostics collections itertools pony_test
+parse/_test_grammar.pony:
+                       source diagnostics collections pony_test
 discover:              sort source diagnostics parse collections
 discover/disk_file_system.pony:
                        source diagnostics parse files collections

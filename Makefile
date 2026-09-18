@@ -14,6 +14,8 @@ cli_binary := $(BUILD_DIR)/hefermotor
 docs_dir := build/$(PACKAGE)-docs
 source_check := tools/imports/check.sh
 source_check_testdata := tools/imports/testdata
+grammar_guard := tools/grammar/guard.py
+grammar_guard_testdata := tools/grammar/testdata
 
 ifdef config
 	ifeq (,$(filter $(config),debug release))
@@ -51,7 +53,7 @@ $(cli_binary): $(SOURCE_FILES) $(CLI_SOURCE_FILES) | $(BUILD_DIR)
 	$(GET_DEPENDENCIES_WITH)
 	$(PONYC) -o $(BUILD_DIR) -b hefermotor $(CLI_SRC_DIR)
 
-# The check must first exit 1 over its own test tree with exactly the
+# Each check must first exit 1 over its own test tree with exactly the
 # expected report before its result on the real tree is trusted.
 lint-source: | $(BUILD_DIR)
 	$(source_check) $(source_check_testdata) \
@@ -59,6 +61,10 @@ lint-source: | $(BUILD_DIR)
 	  test $$? -eq 1
 	diff $(BUILD_DIR)/source-check.txt $(source_check_testdata)/expected.txt
 	$(source_check) . tools/imports/deps.txt
+	$(grammar_guard) $(grammar_guard_testdata) \
+	  > $(BUILD_DIR)/grammar-guard.txt; test $$? -eq 1
+	diff $(BUILD_DIR)/grammar-guard.txt $(grammar_guard_testdata)/expected.txt
+	$(grammar_guard) $(SRC_DIR)/parse
 
 # A step of the ponyc-bump procedure in docs/design.md.
 regen-token-kinds:

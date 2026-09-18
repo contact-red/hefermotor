@@ -9,6 +9,8 @@ actor \nodoc\ Main is TestList
   fun tag tests(test: PonyTest) =>
     _LexerTests.tests(test)
     _TokenKindTests.tests(test)
+    _TreeTests.tests(test)
+    _GrammarTests.tests(test)
     test(_TestBareUse)
     test(_TestSchemesAliasesAndGuards)
     test(_TestFfiExcluded)
@@ -207,9 +209,9 @@ class \nodoc\ iso _TestUseDeclEquality is UnitTest
 class \nodoc\ iso _TestEntryPointsAgree is UnitTest
   """
   `Parse(file).uses` and `Parse.uses_only(file)` agree element by
-  element. Both call one function in M0, so this test cannot fail until
-  the two entry points have separate bodies. Its M1 inputs are the ponyc
-  `packages/` tree and the broken-file corpus.
+  element. `apply` takes its `uses` from `uses_only`, so this test
+  cannot fail until `apply` reads them from the tree. Its M1 inputs are
+  the ponyc `packages/` tree and the broken-file corpus.
   """
   fun name(): String => "parse/uses: the two entry points agree"
 
@@ -235,9 +237,9 @@ class \nodoc\ iso _TestEntryPointsAgree is UnitTest
 
 class \nodoc\ iso _TestNoDiagnosticsWhenWellFormed is UnitTest
   """
-  No M0 body produces a diagnostic, so this test cannot fail until a
-  body reports one. It holds the contract's last clause: well-formed
-  input produces no diagnostics.
+  `apply` drops what the parser records, so this test cannot fail until
+  `apply` reports diagnostics. It holds the contract's last clause:
+  well-formed input produces no diagnostics.
   """
   fun name(): String => "parse/apply: no diagnostics on well-formed input"
 

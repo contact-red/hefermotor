@@ -1,9 +1,9 @@
 """
 # hefermotor/parse
 
-The parser. `Parse` has two entry points over one grammar: `uses_only`
-reads a file's `use` section and returns its declarations, which
-discovery reads to build the package graph, and `apply` parses the whole
+The parser. `Parse` has two entry points: `uses_only` reads a file's
+`use` section and returns its declarations, which discovery reads to
+build the package graph, and `apply` runs the grammar over the whole
 file and is the only reporter of parse diagnostics.
 """
 use diag = "../diagnostics"
@@ -78,8 +78,8 @@ class val ParsedFile
 primitive Parse
   """
   `uses_only` reads the module's `use` section, stops at the first type
-  declaration, and reports nothing. `apply` parses the whole file and is
-  the only reporter of parse diagnostics. For every file,
+  declaration, and reports nothing. `apply` runs the grammar over the
+  whole file and is the only reporter of parse diagnostics. For every file,
   `Parse(file).uses` and `Parse.uses_only(file)` are equal element by
   element.
 
@@ -96,4 +96,5 @@ primitive Parse
     _UseScanner(file).run()
 
   fun apply(file: source.SourceFile): ParsedFile =>
+    _ParseModule(file.content)
     ParsedFile(file, uses_only(file), recover val Array[diag.Diagnostic] end)
