@@ -118,7 +118,8 @@ TAGS:
 
 all: test
 
-build/%:
+# Named, not a pattern: `build/%` would also match the binaries.
+build/debug build/release:
 	mkdir -p $@
 
 .PHONY: all cli clean determinism differential docs lint-source \
