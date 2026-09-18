@@ -51,4 +51,5 @@ hefermotor/analyze_group.pony:
 hefermotor/_test.pony: sort source diagnostics parse discover export schedule
                        command promises files collections pony_test
 hefermotor_main:       hefermotor command discover files
+tools/syntax:          parse source files
 */_unreachable.pony:   @

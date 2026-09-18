@@ -1,18 +1,32 @@
 use "collections"
 use "itertools"
 use "pony_test"
+use diag = "../diagnostics"
+use source = "../source"
 primitive \nodoc\ _TreeTests is TestList
   fun tag tests(test: PonyTest) =>
     test(_TestReprintsTheSource)
     test(_TestShape)
     test(_TestTriviaBelongToTheEnclosingNode)
-    test(_TestSubtreeSizesAreConsistent)
-    test(_TestWalkOffsetsMatchOffset)
+    test(_TestTreeCheckEmptyOverFixtures)
+    test(_TestTreeCheckRows)
     test(_TestErrorIsBounded)
     test(_TestErrorAtTheStart)
     test(_TestDiagnosticsAreRecorded)
     test(_TestEveryTruncationReprints)
-    test(_TestOneRoot)
+    test(_TestPathToEveryByte)
+    test(_TestPathToTheEnd)
+    test(_TestNodeViews)
+    test(_TestNodesInPreOrder)
+    test(_TestNodeEquality)
+    test(_TestElementsArePlain)
+
+primitive \nodoc\ _ParseText
+  """
+  Parses a source as a file named `test.pony` in `/test`.
+  """
+  fun apply(src: String val): SyntaxTree val =>
+    Parse.tree(source.SourceFile("/test", "test.pony", src))
 
 primitive \nodoc\ _Shape
   fun apply(tree: SyntaxTree val): String val =>
@@ -21,14 +35,20 @@ primitive \nodoc\ _Shape
     readable string rather than by walking indices.
     """
     let out = recover String end
-    for (index, depth, _, kind, _) in tree.walk() do
+    let ends = Array[USize]
+    for node in tree.nodes() do
+      let index = node._index()
+      while try ends(ends.size() - 1)? <= index else false end do
+        try ends.pop()? end
+      end
       if index > 0 then out.append(" ") end
-      var d = depth
+      var d = ends.size()
       while d > 0 do
         out.append(">")
         d = d - 1
       end
-      out.append(kind.name())
+      out.append(node.kind().name())
+      if not node.is_leaf() then ends.push(index + node._size()) end
     end
     consume out
 
@@ -40,21 +60,38 @@ class \nodoc\ iso _TestReprintsTheSource is UnitTest
     Losslessness at the tree level rather than the token level: the leaves
     tile the source, so concatenating them gives it back.
     """
-    let sources: Array[String val] = [
-      ""
-      "use \"collections\""
-      "\"\"\"A docstring\"\"\"\nuse \"time\"\n\nclass Foo\n  let x: U32\n"
-      "// only a comment\n"
-      "class Foo\n\nactor Bar\n\nprimitive Baz\n"
-      "use collections = \"collections\"\n"
-      "$$$ garbage $$$\n"
-      "class Foo\n  fun f() =>\n    /* nested /* comment */ */\n    1\n"
-    ]
-    for src in sources.values() do
-      let tree = _ParseModule(src)
+    for src in _Fixtures().values() do
+      let tree = _ParseText(src)
       h.assert_eq[String](src, tree.reprint(),
         "reprint differs for: " + src)
     end
+
+primitive \nodoc\ _Fixtures
+  """
+  Sources the tree tests share: clean, broken, empty, trivia only.
+  """
+  fun apply(): Array[String val] =>
+    [ ""
+      "use \"collections\""
+      "\"\"\"A docstring\"\"\"\nuse \"time\"\n\nclass Foo\n  let x: U32\n"
+      "// only a comment\n"
+      "// only a comment"
+      "class Foo\n\nactor Bar\n\nprimitive Baz\n"
+      "use collections = \"collections\"\n"
+      "$$$ garbage $$$\n"
+      "!!!\n"
+      "\nclass Foo\n"
+      "  \nclass Foo\n"
+      "/* leading */ class Foo\n"
+      "\n\n\n"
+      "class Foo\n\n\n"
+      "use \"a\"\n// trailing comment\n"
+      "class Foo\n  fun f() =>\n    /* nested /* comment */ */\n    1\n"
+      "use 12345\nclass Foo\n"
+      "class Foo\n  fun f() =>\n    ?? ]] => a\n"
+      "actor Main\n  new create(env: Env) =>\n    env.out.print(\"hi\")\n"
+      "trait T\n  fun f(): U8\nclass \\nodoc\\ C is T\n  fun f(): U8 => 1\n"
+    ]
 
 class \nodoc\ iso _TestShape is UnitTest
   fun name(): String => "parse/tree: shape"
@@ -62,7 +99,7 @@ class \nodoc\ iso _TestShape is UnitTest
   fun apply(h: TestHelper) =>
     h.assert_eq[String](
       "NdModule >NdUse >>TkUse >>TkWhitespace >>TkString >TkEof",
-      _Shape(_ParseModule("use \"collections\"")))
+      _Shape(_ParseText("use \"collections\"")))
 
 class \nodoc\ iso _TestTriviaBelongToTheEnclosingNode is UnitTest
   fun name(): String => "parse/tree: trivia belong to the enclosing node"
@@ -73,76 +110,117 @@ class \nodoc\ iso _TestTriviaBelongToTheEnclosingNode is UnitTest
     whichever item happens to follow. `start` flushes pending trivia before
     it opens a node, which is what puts them there.
     """
-    let tree = _ParseModule("class A\n\nclass B\n")
+    let tree = _ParseText("class A\n\nclass B\n")
     // The blank line between the two classes is a child of the module, and
     // so is the trailing newline, because an item stops at the token that
     // starts the next one and never consumes the trivia between.
     var module_children: USize = 0
     var kinds = recover String end
-    try
-      for c in tree.children(0)? do
-        module_children = module_children + 1
-        kinds.append(tree.kind(c)?.name())
-        kinds.append(" ")
-      end
-    else
-      h.fail("no root")
+    for c in tree.root().children() do
+      module_children = module_children + 1
+      kinds.append(c.kind().name())
+      kinds.append(" ")
     end
     h.assert_eq[String](
       "NdClassDef TkWhitespace NdClassDef TkWhitespace TkEof ", consume kinds)
     h.assert_eq[USize](5, module_children)
     // And the class does not swallow the blank line after it, which would
     // make its fold range a line too long.
-    try
-      h.assert_eq[String]("class A", tree.text(1)?)
-    else
-      h.fail("no first class")
+    match tree.root().child(NdClassDef)
+    | let c: Node => h.assert_eq[String]("class A", c.text())
+    | None => h.fail("no first class")
     end
 
-class \nodoc\ iso _TestSubtreeSizesAreConsistent is UnitTest
-  fun name(): String => "parse/tree: subtree sizes are consistent"
+class \nodoc\ iso _TestTreeCheckEmptyOverFixtures is UnitTest
+  fun name(): String => "parse/tree: TreeCheck is empty over every fixture"
+
+  fun apply(h: TestHelper) =>
+    for src in _Fixtures().values() do
+      for v in TreeCheck(_ParseText(src)).values() do
+        h.fail(v.string() + " for: " + src)
+      end
+    end
+    let big = recover val
+      let out = String
+      for src in _Fixtures().values() do out.append(src) end
+      out
+    end
+    for v in TreeCheck(_ParseText(big)).values() do
+      h.fail(v.string() + " for the joined fixture")
+    end
+
+class \nodoc\ iso _TestTreeCheckRows is UnitTest
+  fun name(): String =>
+    "parse/tree: each TreeCheck invariant fires on its fault"
 
   fun apply(h: TestHelper) =>
     """
-    A node's subtree size must equal one plus the sizes of its children, or
-    sibling navigation walks into the middle of a subtree.
+    One counterfactual per row, built through `_create` from a sound
+    tree's elements with one element changed, each asserting the exact
+    violations reported.
     """
-    let src = "use \"a\"\nclass Foo\n  fun f() => 1\nactor Bar\n"
-    let tree = _ParseModule(src)
-    var i: USize = 0
-    while i < tree.size() do
-      try
-        let span = tree.subtree_size(i)?
-        var total: USize = 1
-        for c in tree.children(i)? do
-          total = total + tree.subtree_size(c)?
-        end
-        h.assert_eq[USize](span, total,
-          "element " + i.string() + " (" + tree.kind(i)?.name() + ")")
-      else
-        h.fail("bad index " + i.string())
+    let file = source.SourceFile("/t", "t.pony", "use \"a\"\n")
+    let sound = _ParseModule(file)
+    // Elements: NdModule(0, 7), NdUse(0, 4), TkUse@0, TkWhitespace@3,
+    // TkString@4, TkWhitespace@7, TkEof@8. Widths are derived, so a
+    // size or an offset can only move bytes between neighbours, never
+    // lose them: a shrunken NdUse leaves its string a child of the
+    // module, which is consistent, and a leaf moved forward widens the
+    // leaf before it.
+    h.assert_eq[String](
+      "NdModule >NdUse >>TkUse >>TkWhitespace >>TkString >TkWhitespace >TkEof",
+      _Shape(sound))
+    let cases: Array[(String, USize, SyntaxElement, String)] = [
+      ("root too small", 0, (NdModule, 0, 6), "OneRoot at element 0")
+      ("no eof", 6, (TkId, 8, 1), "EofLast at element 6")
+      ("eof early", 6, (TkEof, 7, 1), "EofLast at element 6")
+      ("use past the end", 1, (NdUse, 0, 8),
+        "SubtreeSizes at element 1, SubtreeSizes at element 0")
+      ("use empty", 1, (NdUse, 0, 0),
+        "SubtreeSizes at element 1, SubtreeSizes at element 0")
+      ("offset back", 4, (TkString, 2, 1), "OffsetsMonotone at element 4")
+      ("use starts late", 1, (NdUse, 1, 4),
+        "FirstLeafOffset at element 0, OffsetsMonotone at element 2, " +
+        "FirstLeafOffset at element 1")
+      ("empty node off its place", 3, (NdError, 3, 1),
+        "FirstLeafOffset at element 3, Reprint at element 4")
+      ("root not a module", 0, (NdError, 0, 7), "OneRoot at element 0")
+      ("leaf sized two", 2, (TkUse, 0, 2),
+        "SubtreeSizes at element 2, Reprint at element 3, " +
+        "SubtreeSizes at element 1")
+      ("interior last", 6, (NdError, 7, 1),
+        "EofLast at element 6, FirstLeafOffset at element 6, " +
+        "Reprint at element 6")
+    ]
+    for (label, at, element, expected) in cases.values() do
+      let elems = recover iso Array[SyntaxElement] end
+      for (i, e) in sound._elements().pairs() do
+        elems.push(if i == at then element else e end)
       end
-      i = i + 1
+      _check(h, file, consume elems, expected, label)
     end
-
-class \nodoc\ iso _TestWalkOffsetsMatchOffset is UnitTest
-  fun name(): String => "parse/tree: walk offsets match offset()"
-
-  fun apply(h: TestHelper) =>
-    """
-    `walk` accumulates offsets and `offset` recomputes one from scratch.
-    They must agree, or a consumer that uses one will disagree with a
-    consumer that uses the other.
-    """
-    let tree = _ParseModule("use \"a\"\n\nclass Foo\n  let x: U32 = 1\n")
-    for (index, _, at, _, _) in tree.walk() do
-      try
-        h.assert_eq[USize](at, tree.offset(index)?,
-          "element " + index.string())
-      else
-        h.fail("no offset for " + index.string())
-      end
+    // Every element but the end token starts three bytes late: the
+    // file's first three bytes are covered by nothing, and the end
+    // token's offset is now below the whitespace's before it.
+    let shifted = recover iso Array[SyntaxElement] end
+    for (k, o, n) in sound._elements().values() do
+      shifted.push(if k is TkEof then (k, o, n) else (k, o + 3, n) end)
     end
+    _check(h, file, consume shifted,
+      "Reprint at element 2, OffsetsMonotone at element 6",
+      "every leaf shifted")
+    _check(h, file, recover val Array[SyntaxElement] end,
+      "OneRoot at element 0, EofLast at element 0", "no elements")
+
+  fun _check(h: TestHelper, file: source.SourceFile,
+    elems: Array[SyntaxElement] val, expected: String, label: String)
+  =>
+    let broken = SyntaxTree._create(file, elems,
+      recover val Array[SyntaxDiagnostic val] end)
+    let got: String val = ", ".join(
+      Iter[TreeViolation](TreeCheck(broken).values())
+        .map[String]({(v) => v.string() }))
+    h.assert_eq[String](expected, got, label)
 
 class \nodoc\ iso _TestErrorIsBounded is UnitTest
   fun name(): String => "parse/tree: an error costs one item"
@@ -153,35 +231,27 @@ class \nodoc\ iso _TestErrorIsBounded is UnitTest
     class after it with it.
     """
     let src = "use 12345\nclass Foo\n"
-    let tree = _ParseModule(src)
+    let tree = _ParseText(src)
     h.assert_eq[String](src, tree.reprint())
-    var saw_error = false
-    var saw_item = false
-    for (_, _, _, kind, _) in tree.walk() do
-      if kind is NdError then saw_error = true end
-      if kind is NdClassDef then saw_item = true end
-    end
-    h.assert_true(saw_error, "no error node")
-    h.assert_true(saw_item, "the class after the bad use was lost")
+    h.assert_ne[USize](0, _Find.count(tree, NdError), "no error node")
+    h.assert_eq[USize](1, _Find.count(tree, NdClassDef),
+      "the class after the bad use was lost")
 
 class \nodoc\ iso _TestErrorAtTheStart is UnitTest
   fun name(): String => "parse/tree: junk before the first item"
 
   fun apply(h: TestHelper) =>
     let src = "!!! \nclass Foo\n"
-    let tree = _ParseModule(src)
+    let tree = _ParseText(src)
     h.assert_eq[String](src, tree.reprint())
-    var saw_item = false
-    for (_, _, _, kind, _) in tree.walk() do
-      if kind is NdClassDef then saw_item = true end
-    end
-    h.assert_true(saw_item, "recovery did not reach the class")
+    h.assert_eq[USize](1, _Find.count(tree, NdClassDef),
+      "recovery did not reach the class")
 
 class \nodoc\ iso _TestDiagnosticsAreRecorded is UnitTest
   fun name(): String => "parse/tree: diagnostics are recorded"
 
   fun apply(h: TestHelper) =>
-    let tree = _ParseModule("use 12345\n")
+    let tree = _ParseText("use 12345\n")
     h.assert_ne[USize](0, tree.diagnostics.size(), "no diagnostic")
     try
       let d = tree.diagnostics(0)?
@@ -197,7 +267,8 @@ class \nodoc\ iso _TestEveryTruncationReprints is UnitTest
   fun apply(h: TestHelper) =>
     """
     Error tolerance at the tree level, exhaustively: cutting a source at any
-    byte must still produce a tree that reprints to it.
+    byte must still produce a tree that reprints to it and passes
+    `TreeCheck`.
     """
     let src =
       "\"\"\"Docstring\"\"\"\n" +
@@ -211,42 +282,186 @@ class \nodoc\ iso _TestEveryTruncationReprints is UnitTest
     var cut: USize = 0
     while cut <= src.size() do
       let piece = recover val src.substring(0, cut.isize()) end
-      h.assert_eq[String](piece, _ParseModule(piece).reprint(),
+      let tree = _ParseText(piece)
+      h.assert_eq[String](piece, tree.reprint(),
         "reprint differs at cut " + cut.string())
+      for v in TreeCheck(tree).values() do
+        h.fail(v.string() + " at cut " + cut.string())
+      end
       cut = cut + 1
     end
 
-class \nodoc\ iso _TestOneRoot is UnitTest
-  fun name(): String => "parse/tree: there is exactly one root"
+class \nodoc\ iso _TestPathToEveryByte is UnitTest
+  fun name(): String => "parse/tree: path_to at every byte"
 
   fun apply(h: TestHelper) =>
     """
-    Element zero must span every element, or the tree has several roots and
-    a walk from zero misses part of the source. Trailing trivia emitted
-    after the root node was closed is how that happens.
+    At every byte of a fixture the path nests, starts at the root, and
+    ends at a leaf covering the byte.
     """
-    let sources: Array[String val] = [
-      ""
-      "class Foo\n"
-      "class Foo\n\n\n"
-      "use \"a\"\n// trailing comment\n"
-      "class A\n\nclass B\n  \n"
-      "!!!\n"
-      // Leading trivia has nothing to be enclosed by, so it must go inside
-      // the root rather than before it.
-      "\nclass Foo\n"
-      "  \nclass Foo\n"
-      "// a leading comment\nclass Foo\n"
-      "/* leading */ class Foo\n"
-      "\n\n\n"
-      "// only a comment"
-    ]
-    for src in sources.values() do
-      let tree = _ParseModule(src)
-      try
-        h.assert_eq[USize](tree.size(), tree.subtree_size(0)?,
-          "root does not span the tree for: " + src)
-      else
-        h.fail("no root for: " + src)
+    for src in _Fixtures().values() do
+      let tree = _ParseText(src)
+      var byte: USize = 0
+      while byte < src.size() do
+        let path = tree.path_to(byte)
+        let label = "byte " + byte.string() + " of: " + src
+        try
+          h.assert_true(path(0)? == tree.root(), label + ": not the root")
+          let last = path(path.size() - 1)?
+          h.assert_true(last.is_leaf(), label + ": not a leaf")
+          h.assert_true((last.offset() <= byte) and (byte < last.finish()),
+            label + ": the leaf does not cover the byte")
+          var i: USize = 1
+          while i < path.size() do
+            let outer = path(i - 1)?
+            let inner = path(i)?
+            h.assert_true((outer.offset() <= inner.offset()) and
+              (inner.finish() <= outer.finish()), label + ": no nesting")
+            i = i + 1
+          end
+        else
+          h.fail(label + ": empty path")
+        end
+        byte = byte + 1
       end
     end
+
+class \nodoc\ iso _TestPathToTheEnd is UnitTest
+  fun name(): String => "parse/tree: path_to at and past the end"
+
+  fun apply(h: TestHelper) =>
+    let src: String val = "use \"a\"\n"
+    let tree = _ParseText(src)
+    try
+      let at_end = tree.path_to(src.size())
+      h.assert_true(at_end(at_end.size() - 1)?.kind() is TkEof,
+        "the path to the size does not end at TkEof")
+    else
+      h.fail("no path to the size")
+    end
+    h.assert_eq[USize](0, tree.path_to(src.size() + 1).size())
+    let empty = _ParseText("")
+    let path = empty.path_to(0)
+    h.assert_eq[USize](2, path.size())
+    try
+      h.assert_true(path(0)?.kind() is NdModule)
+      h.assert_true(path(1)?.kind() is TkEof)
+    end
+
+class \nodoc\ iso _TestNodeViews is UnitTest
+  fun name(): String => "parse/tree: a node's text, span, trivia and children"
+
+  fun apply(h: TestHelper) =>
+    """
+    `is_trivia` is true for exactly the whitespace and comment leaves;
+    `span` names the file; every leaf's text concatenated is the source
+    and the non-trivia leaves' is the source without its trivia;
+    `child` and `first_token` on an entity with and without
+    annotations, and `first_token` on a node whose first child is a
+    node.
+    """
+    let src: String val =
+      "// c\nclass \\a\\ A\n  fun f() => /* n */ x.y + 1\n\nactor B\n"
+    let file = source.SourceFile("/pkg", "m.pony", src)
+    let tree = _ParseModule(file)
+    let all = recover iso String end
+    let significant = recover iso String end
+    var trivia: USize = 0
+    for node in tree.nodes() do
+      if node.is_leaf() then
+        all.append(node.text())
+        if node.is_trivia() then
+          trivia = trivia + 1
+          h.assert_true(
+            match node.kind()
+            | TkWhitespace | TkLineComment | TkNestedComment => true
+            else
+              false
+            end, "trivia of kind " + node.kind().name())
+        else
+          significant.append(node.text())
+        end
+      else
+        h.assert_false(node.is_trivia(), node.kind().name() + " is trivia")
+      end
+    end
+    h.assert_eq[String](src, consume all)
+    h.assert_eq[String]("class\\a\\Afunf()=>x.y+1actorB",
+      consume significant)
+    h.assert_eq[USize](15, trivia)
+    match tree.root().child(NdClassDef)
+    | let a: Node =>
+      var found = false
+      for n in tree.nodes() do
+        if (n.kind() is NdBinOp) and (n.offset() >= a.offset()) then
+          found = true
+          h.assert_true(n.first_token() is TkPlus,
+            "the operator is the first leaf child of the infix node")
+          break
+        end
+      end
+      h.assert_true(found, "no infix node")
+    | None => h.fail("no class")
+    end
+    let entities = Array[Node]
+    for c in tree.root().children() do
+      if c.kind() is NdClassDef then entities.push(c) end
+    end
+    h.assert_eq[USize](2, entities.size())
+    try
+      let a = entities(0)?
+      h.assert_true(a.span() == diag.Span("/pkg", "m.pony", 5, 40),
+        "span " + a.span().start.string() + "+" + a.span().length.string())
+      h.assert_true(a.first_token() is TkClass)
+      match a.child(NdAnnotations)
+      | let ann: Node => h.assert_eq[String]("\\a\\", ann.text())
+      | None => h.fail("no annotations")
+      end
+      match a.child(TkId)
+      | let id: Node => h.assert_eq[String]("A", id.text())
+      | None => h.fail("no name")
+      end
+      let b = entities(1)?
+      h.assert_true(b.first_token() is TkActor)
+      h.assert_true(b.child(NdAnnotations) is None)
+      h.assert_eq[String]("actor B", b.text())
+    end
+
+class \nodoc\ iso _TestNodesInPreOrder is UnitTest
+  fun name(): String => "parse/tree: nodes visits every element in order"
+
+  fun apply(h: TestHelper) =>
+    let tree = _ParseText("use \"a\"\nclass Foo\n  fun f() => 1\n")
+    var expected: USize = 0
+    for node in tree.nodes() do
+      h.assert_eq[USize](expected, node._index())
+      expected = expected + 1
+    end
+    h.assert_eq[USize](tree.size(), expected)
+
+class \nodoc\ iso _TestNodeEquality is UnitTest
+  fun name(): String => "parse/tree: nodes are equal within one tree only"
+
+  fun apply(h: TestHelper) =>
+    let src: String val = "class Foo\n"
+    let once = _ParseText(src)
+    let again = _ParseText(src)
+    h.assert_true(once.root() == once.root())
+    h.assert_false(once.root() == again.root())
+    try
+      h.assert_false(once.root() == once._node(1)?)
+    else
+      h.fail("no element 1")
+    end
+
+class \nodoc\ iso _TestElementsArePlain is UnitTest
+  fun name(): String => "parse/tree: an element is a kind and two U32s"
+
+  fun apply(h: TestHelper) =>
+    """
+    Pins the element type: a primitive union and two `U32`s, so that a
+    `val` send of a tree traces none of its elements.
+    """
+    let tree = _ParseText("")
+    let e: Array[(SyntaxKind, U32, U32)] val = tree._elements()
+    h.assert_eq[USize](2, e.size())

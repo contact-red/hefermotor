@@ -1,5 +1,6 @@
 use "collections"
 use "pony_test"
+use source = "../source"
 primitive \nodoc\ _GrammarTests is TestList
   fun tag tests(test: PonyTest) =>
     test(_TestEntityExtents)
@@ -29,20 +30,16 @@ primitive \nodoc\ _Find
     """
     The source text of the first node of `kind`, or "" with a failure.
     """
-    for (index, _, _, k, _) in tree.walk() do
-      if k is kind then
-        try
-          return recover val tree.text(index)? end
-        end
-      end
+    for node in tree.nodes() do
+      if node.kind() is kind then return node.text() end
     end
     h.fail("no " + kind.name() + " in the tree")
     ""
 
   fun count(tree: SyntaxTree val, kind: NodeKind): USize =>
     var n: USize = 0
-    for (_, _, _, k, _) in tree.walk() do
-      if k is kind then n = n + 1 end
+    for node in tree.nodes() do
+      if node.kind() is kind then n = n + 1 end
     end
     n
 
@@ -55,13 +52,11 @@ primitive \nodoc\ _Find
     """
     Direct children of `child` kind under the first node of `parent` kind.
     """
-    for (index, _, _, k, _) in tree.walk() do
-      if k is parent then
+    for node in tree.nodes() do
+      if node.kind() is parent then
         var n: USize = 0
-        try
-          for c in tree.children(index)? do
-            if tree.kind(c)? is child then n = n + 1 end
-          end
+        for c in node.children() do
+          if c.kind() is child then n = n + 1 end
         end
         return n
       end
@@ -79,6 +74,7 @@ primitive \nodoc\ _Clean
         h.fail("unexpected diagnostic: " + tree.diagnostics(0)?.string())
       end
     end
+    for v in TreeCheck(tree).values() do h.fail(v.string()) end
 
 class \nodoc\ iso _TestEntityExtents is UnitTest
   fun name(): String => "parse/grammar: entity extents"
@@ -93,7 +89,7 @@ class \nodoc\ iso _TestEntityExtents is UnitTest
       "  \"\"\"Docs\"\"\"\n" +
       "  let x: U32 = 1\n" +
       "  fun f(): U32 => x\n"
-    let tree = _ParseModule(src)
+    let tree = _ParseText(src)
     _Clean(h, tree, src)
     h.assert_eq[String]("[A: Any val]",
       _Find.text(h, tree, NdTypeParams))
@@ -120,7 +116,7 @@ class \nodoc\ iso _TestTypeGrammar is UnitTest
     ]
     for (declared, expected) in cases.values() do
       let src: String val = "class Foo\n  let x: " + declared + "\n"
-      let tree = _ParseModule(src)
+      let tree = _ParseText(src)
       _Clean(h, tree, src)
       h.assert_eq[String]("let x: " + expected,
         _Find.text(h, tree, NdField), "for type " + declared)
@@ -138,7 +134,7 @@ class \nodoc\ iso _TestUseForms is UnitTest
       "use @exit[None](code: I32) if not windows\n"
     ]
     for src in cases.values() do
-      let tree = _ParseModule(src)
+      let tree = _ParseText(src)
       _Clean(h, tree, src)
       h.assert_eq[USize](1, _Find.count(tree, NdUse), "for: " + src)
     end
@@ -154,7 +150,7 @@ class \nodoc\ iso _TestUseNameCommits is UnitTest
     node over `x "a"`.
     """
     let src = "use x \"a\"\n"
-    let tree = _ParseModule(src)
+    let tree = _ParseText(src)
     h.assert_eq[String](src, tree.reprint(), "reprint differs")
     h.assert_eq[USize](1, _Find.count(tree, NdUse))
     h.assert_eq[USize](1, _Find.count(tree, NdUseName))
@@ -182,7 +178,7 @@ class \nodoc\ iso _TestUseNameBeforeAKeyword is UnitTest
       ("use x\n", NdModule, "TkEof")
     ]
     for (src, kept, found) in cases.values() do
-      let tree = _ParseModule(src)
+      let tree = _ParseText(src)
       h.assert_eq[String](src, tree.reprint(), "reprint differs")
       h.assert_eq[USize](0, _Find.count(tree, NdError), "for: " + src)
       h.assert_eq[USize](1, tree.diagnostics.size(), "for: " + src)
@@ -198,7 +194,7 @@ class \nodoc\ iso _TestBumpAtTheEnd is UnitTest
   fun name(): String => "parse/grammar: bump at the end emits TkEof once"
 
   fun apply(h: TestHelper) =>
-    let p = _Parser("x ")
+    let p = _Parser(source.SourceFile("/t", "t.pony", "x "))
     p.start(NdModule)
     p.bump()
     p.bump()
@@ -226,7 +222,7 @@ class \nodoc\ iso _TestMethodBodyKeepsItsLocals is UnitTest
       "    var b = a + 1\n" +
       "    b\n" +
       "  fun g(): U32 => 2\n"
-    let tree = _ParseModule(src)
+    let tree = _ParseText(src)
     _Clean(h, tree, src)
     h.assert_eq[USize](2, _Find.count(tree, NdMethod))
     h.assert_eq[USize](0, _Find.count(tree, NdField),
@@ -259,7 +255,7 @@ class \nodoc\ iso _TestNestedBlocksInABody is UnitTest
       "      fun apply(): U32 => 1\n" +
       "    end\n" +
       "  fun h(): U32 => 4\n"
-    let tree = _ParseModule(src)
+    let tree = _ParseText(src)
     _Clean(h, tree, src)
     h.assert_eq[USize](3, _Find.count_within(tree, NdMembers, NdMethod),
       "a nested block ended a body early")
@@ -274,7 +270,7 @@ class \nodoc\ iso _TestBadMemberCostsOneMember is UnitTest
       "class Foo\n" +
       "  !!! nonsense !!!\n" +
       "  fun f(): U32 => 1\n"
-    let tree = _ParseModule(src)
+    let tree = _ParseText(src)
     h.assert_eq[String](src, tree.reprint())
     h.assert_eq[USize](1, _Find.count(tree, NdClassDef))
     h.assert_eq[USize](1, _Find.count(tree, NdMethod),
@@ -292,7 +288,7 @@ class \nodoc\ iso _TestBadEntityCostsOneEntity is UnitTest
       "class 123\n" +
       "actor Good\n" +
       "  be go() => None\n"
-    let tree = _ParseModule(src)
+    let tree = _ParseText(src)
     h.assert_eq[String](src, tree.reprint())
     h.assert_eq[USize](2, _Find.count(tree, NdClassDef))
     h.assert_eq[USize](1, _Find.count(tree, NdMethod),
@@ -306,7 +302,7 @@ class \nodoc\ iso _TestMissingFieldTypeIsReported is UnitTest
     ponyc requires it, and the diagnostic is what a language server shows.
     """
     let src: String val = "class Foo\n  let x = 1\n"
-    let tree = _ParseModule(src)
+    let tree = _ParseText(src)
     h.assert_eq[String](src, tree.reprint())
     h.assert_ne[USize](0, tree.diagnostics.size(), "no diagnostic")
 
@@ -343,7 +339,7 @@ class \nodoc\ iso _TestExpressionShapes is UnitTest
     ]
     for (expr, kind, expected) in cases.values() do
       let src: String val = "class Foo\n  fun f() =>\n    " + expr + "\n"
-      let tree = _ParseModule(src)
+      let tree = _ParseText(src)
       _Clean(h, tree, src)
       h.assert_eq[String](expected, _Find.text(h, tree, kind),
         "for: " + expr)
@@ -359,7 +355,7 @@ class \nodoc\ iso _TestPostfixNestsToTheLeft is UnitTest
     nesting a question about `.y` has no node to be asked of.
     """
     let src: String val = "class Foo\n  fun f() =>\n    x.y.z()?\n"
-    let tree = _ParseModule(src)
+    let tree = _ParseText(src)
     _Clean(h, tree, src)
     h.assert_eq[USize](2, _Find.count(tree, NdDot))
     // Pre-order, so the first is the outermost.
@@ -375,7 +371,7 @@ class \nodoc\ iso _TestInfixNestsToTheLeft is UnitTest
     to its left rather than climbing.
     """
     let src: String val = "class Foo\n  fun f() =>\n    a + b + c\n"
-    let tree = _ParseModule(src)
+    let tree = _ParseText(src)
     _Clean(h, tree, src)
     h.assert_eq[USize](2, _Find.count(tree, NdBinOp))
     h.assert_eq[String]("a + b + c", _Find.text(h, tree, NdBinOp))
@@ -402,7 +398,7 @@ class \nodoc\ iso _TestControlStructures is UnitTest
     ]
     for (expr, kind) in cases.values() do
       let src: String val = "class Foo\n  fun f() =>\n    " + expr + "\n"
-      let tree = _ParseModule(src)
+      let tree = _ParseText(src)
       _Clean(h, tree, src)
       h.assert_eq[String](expr, _Find.text(h, tree, kind), "for: " + expr)
     end
@@ -424,7 +420,7 @@ class \nodoc\ iso _TestEveryClauseTakesAnnotations is UnitTest
       "    repeat \\a\\ q until \\a\\ p else \\a\\ r end\n" +
       "    try \\a\\ q else \\a\\ r then \\a\\ s end\n" +
       "    match \\a\\ q | \\a\\ p => r else \\a\\ s end\n"
-    let tree = _ParseModule(src)
+    let tree = _ParseText(src)
     _Clean(h, tree, src)
     h.assert_eq[USize](11, _Find.count(tree, NdAnnotations))
 
@@ -438,7 +434,7 @@ class \nodoc\ iso _TestJunkInABodyTerminates is UnitTest
     hang the parser, so the loop takes such a token as an error instead.
     """
     let src: String val = "class Foo\n  fun f() =>\n    ?? ]] => a\n"
-    let tree = _ParseModule(src)
+    let tree = _ParseText(src)
     h.assert_eq[String](src, tree.reprint(), "reprint differs")
     h.assert_ne[USize](0, tree.diagnostics.size(), "no diagnostic")
     h.assert_eq[USize](1, _Find.count(tree, NdMethod),
@@ -461,9 +457,9 @@ class \nodoc\ iso _TestNestingPastTheLimitIsRefused is UnitTest
     their enclosing declaration. Each shape exercises a different
     guarded cycle — term, prefix, type, assignment, for-pattern,
     constant expression, object, lambda — so a boundary that moves
-    means a guard was added, removed, or the limit changed. Far past the limit every shape
-    must refuse with a diagnostic rather than crash, which the deep
-    legs check.
+    means a guard was added, removed, or the limit changed. Far past
+    the limit every shape must refuse with a diagnostic rather than
+    crash, which the deep legs check.
     """
     _check(h, "paren", _Nested.parens(1249), _Nested.parens(1250))
     _check(h, "prefix",
@@ -491,13 +487,13 @@ class \nodoc\ iso _TestNestingPastTheLimitIsRefused is UnitTest
     admitted: String val,
     refused: String val)
   =>
-    let ok = _ParseModule(admitted)
+    let ok = _ParseText(admitted)
     h.assert_eq[String](admitted, ok.reprint(),
       shape + ": admitted reprint differs")
     h.assert_eq[USize](0, ok.diagnostics.size(),
       shape + ": the guard fired under the limit")
 
-    let bad = _ParseModule(refused)
+    let bad = _ParseText(refused)
     h.assert_eq[String](refused, bad.reprint(),
       shape + ": refused reprint differs")
     h.assert_ne[USize](0, bad.diagnostics.size(),
@@ -512,7 +508,7 @@ class \nodoc\ iso _TestNestingPastTheLimitIsRefused is UnitTest
       shape + ": no diagnostic names the depth limit")
 
   fun _check_deep(h: TestHelper, shape: String, refused: String val) =>
-    let tree = _ParseModule(refused)
+    let tree = _ParseText(refused)
     h.assert_eq[String](refused, tree.reprint(),
       shape + ": deep reprint differs")
     h.assert_ne[USize](0, tree.diagnostics.size(),
@@ -535,15 +531,10 @@ class \nodoc\ iso _TestRefusalRecoveryResumes is UnitTest
         out.append("class After\n  fun f(): U8 => 0\n")
         out
       end
-    let tree = _ParseModule(src)
+    let tree = _ParseText(src)
     h.assert_eq[String](src, tree.reprint(), "reprint differs")
     h.assert_ne[USize](0, tree.diagnostics.size(), "the guard did not fire")
-    var entities: USize = 0
-    for (_, _, _, kind, _) in tree.walk() do
-      if kind is NdClassDef then
-        entities = entities + 1
-      end
-    end
+    let entities = _Find.count(tree, NdClassDef)
     h.assert_eq[USize](2, entities,
       "the declaration after the refused region was lost")
 

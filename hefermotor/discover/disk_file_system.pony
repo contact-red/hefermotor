@@ -49,7 +49,13 @@ class DiskFileSystem is FileSystem
         f.dispose()
         return Denied("can't determine length of file")
       end
-      let content: String val = f.read_string(f.size())
+      // The parser addresses a file with 32-bit offsets.
+      let size = f.size()
+      if size > U32.max_value().usize() then
+        f.dispose()
+        return Denied("file is 4 GiB or larger")
+      end
+      let content: String val = f.read_string(size)
       f.dispose()
       content
     | let err: FileErrNo =>

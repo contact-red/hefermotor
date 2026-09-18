@@ -1,3 +1,5 @@
+use source = "../source"
+
 // Pony's item grammar, ported rule for rule from ponyc's parser.c: module,
 // use, entity declarations, members, methods, fields and parameters.
 //
@@ -6,13 +8,13 @@
 
 primitive _ParseModule
   """
-  Parse a source into a tree.
+  Parse a file into a tree.
 
   Never fails, whatever the input. What cannot be interpreted becomes an
   `NdError` node bounded by the next item, and parsing continues.
   """
-  fun apply(source: String val): SyntaxTree val =>
-    let p = _Parser(source)
+  fun apply(file: source.SourceFile): SyntaxTree val =>
+    let p = _Parser(file)
     _Module(p)
     p.build()
 

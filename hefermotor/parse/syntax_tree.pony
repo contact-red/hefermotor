@@ -1,36 +1,46 @@
+use diag = "../diagnostics"
+use source = "../source"
+
+type SyntaxElement is (SyntaxKind, U32, U32)
+  """
+  Kind, byte offset of the first byte, subtree size in elements: a
+  primitive union and two `U32`s, 16 bytes, so a `val` send of a tree
+  traces none of its elements. `SourceFile` documents the bound the
+  offset puts on a file.
+  """
+
 class val SyntaxTree
   """
-  A source and the tree that covers it, flattened into one pre-order array.
-
-  Each element carries its kind, its width in bytes, and the size of its
-  subtree in elements. The children of element `i` begin at `i + 1`, and the
-  next sibling of `i` is at `i + subtree_size(i)`. A leaf has a subtree size
-  of one.
-
-  Elements carry widths and not offsets, so an edit changes only the elements
-  that contain it. An offset is derived by adding the widths of the leaves
-  that precede an element, which `offset` does.
-
-  Lossless: the leaves tile the source in order, so `reprint` reproduces it.
+  A file and the lossless tree over it, flattened in pre-order. Leaves
+  tile the file in order, so `reprint` reproduces it byte for byte.
+  Element 0 is the `NdModule`; the last element is the `TkEof` leaf at
+  the file's size. Leafness is by kind: a `TokenKind` is a leaf, a
+  `NodeKind` is not, whatever its subtree size.
   """
-  let source: String val
+  let file: source.SourceFile
+    """
+    The file the tree covers.
+    """
   let diagnostics: Array[SyntaxDiagnostic val] val
-  let _elems: Array[(SyntaxKind, U32, U32)] val
     """
-    Kind, width in bytes, subtree size in elements.
-
-    Not `embed`, which would save an allocation, because an embedded array
-    must be built in place and this one is built by the parser and handed
-    over. One allocation per tree rather than per element, so the difference
-    is not worth contorting the construction for.
+    What the parser recorded while building the tree.
     """
+  let _elems: Array[SyntaxElement] val
 
-  new val create(
-    source': String val,
-    elems: Array[(SyntaxKind, U32, U32)] val,
+  new val _create(
+    file': source.SourceFile,
+    elems: Array[SyntaxElement] val,
     diagnostics': Array[SyntaxDiagnostic val] val)
   =>
-    source = source'
+    """
+    Takes the elements as the parser lays them out: the children of
+    element `i` start at `i + 1`, its next sibling is at `i` plus its
+    subtree size, a leaf spans one element, and an element's width is
+    the next element's offset after its subtree (or the file's size)
+    minus its own. Over elements that break that layout only
+    `TreeCheck` is total; `path_to` and `children` may not end.
+    """
+    file = file'
     _elems = elems
     diagnostics = diagnostics'
 
@@ -40,180 +50,230 @@ class val SyntaxTree
     """
     _elems.size()
 
-  fun kind(i: USize): SyntaxKind ? =>
-    _elems(i)?._1
+  fun val root(): Node =>
+    """
+    The `NdModule` element.
+    """
+    Node._create(this, 0)
 
-  fun width(i: USize): USize ? =>
+  fun val nodes(): Iterator[Node] =>
     """
-    How many bytes of source element `i` covers.
+    Every element in pre-order.
     """
-    _elems(i)?._2.usize()
+    _Nodes(this)
 
-  fun subtree_size(i: USize): USize ? =>
+  fun val path_to(byte: USize): Array[Node] val =>
     """
-    How many elements element `i` spans, itself included. One, for a leaf.
+    The elements covering `byte`, outermost first, ending at a leaf.
+    Ranges are half-open, so a zero-width element covers no byte, with
+    one exception: the path to the file's size is the path to `TkEof`,
+    the zero-width leaf that is always last, so a position at the end
+    of the file has a path and an empty file gives the module and the
+    `TkEof`. Empty for a byte past that. At each level the covering
+    child is the last child whose offset is at most `byte`.
     """
-    _elems(i)?._3.usize()
-
-  fun is_leaf(i: USize): Bool ? =>
-    _elems(i)?._3 == 1
-
-  fun offset(i: USize): USize ? =>
-    """
-    The byte offset of element `i`.
-
-    Leaves tile the source in pre-order, so this is the total width of the
-    leaves before `i`. Linear in `i`; a walk that needs every offset should
-    use `walk`, which accumulates them.
-    """
-    if i >= _elems.size() then error end
-    var total: USize = 0
-    var j: USize = 0
-    while j < i do
-      (_, let w, let s) = _elems(j)?
-      if s == 1 then total = total + w.usize() end
-      j = j + 1
-    end
-    total
-
-  fun text(i: USize): String iso^ ? =>
-    """
-    The exact source text element `i` covers.
-    """
-    let from = offset(i)?
-    source.substring(from.isize(), (from + width(i)?).isize())
-
-  fun children(i: USize): ChildIterator ? =>
-    """
-    The indices of the direct children of element `i`.
-    """
-    ChildIterator(this, i, subtree_size(i)?)
-
-  fun path_to(byte: USize): Array[USize] val =>
-    """
-    The elements containing byte offset `byte`, outermost first, ending at
-    the innermost that covers it.
-
-    This is what expanding a selection walks: each step outwards is the
-    next span. Empty when the offset is past the end of the source.
-    """
-    recover val
-      let path = Array[USize]
-      let root_width = try width(0)? else 0 end
-
-      if (size() > 0) and (byte < root_width) then
-        path.push(0)
-        var index: USize = 0
-        var from: USize = 0
-        var span = try subtree_size(0)? else 1 end
-        var descended = true
-
-        while descended do
-          descended = false
-          var child = index + 1
-          var at = from
-          while child < (index + span) do
-            let child_width = try width(child)? else 0 end
-            let child_span = try subtree_size(child)? else 1 end
-            if (byte >= at) and (byte < (at + child_width)) then
-              path.push(child)
-              index = child
-              from = at
-              span = child_span
-              descended = true
-              break
-            end
-            at = at + child_width
-            child = child + child_span
-          end
-        end
+    let n = file.content.size()
+    if byte > n then return recover val Array[Node] end end
+    let path = recover iso Array[Node] end
+    var index: USize = 0
+    while true do
+      path.push(Node._create(this, index))
+      match _kind(index)
+      | let _: TokenKind => break
       end
-
-      path
+      let stop = index + _size(index)
+      var child = index + 1
+      var covering: (USize | None) = None
+      while child < stop do
+        if _offset(child) <= byte then covering = child end
+        child = child + _size(child)
+      end
+      match covering
+      | let c: USize => index = c
+      | None => break
+      end
     end
-
-  fun walk(): TreeWalk^ =>
-    """
-    Every element in pre-order as `(index, depth, offset, kind, width)`,
-    with offsets accumulated as the walk proceeds.
-    """
-    TreeWalk._create(this)
+    consume path
 
   fun reprint(): String iso^ =>
     """
-    Concatenate the leaves. Equal to `source` for any tree this package
-    builds, which is what "lossless" means and what the tests assert.
+    Concatenate the leaves. Equal to the file's content for any tree this
+    package builds, which is what lossless means.
     """
-    let out = recover String(source.size()) end
-    var offset': USize = 0
-    for (_, w, s) in _elems.values() do
-      if s == 1 then
-        let width' = w.usize()
-        out.append(source, offset', width')
-        offset' = offset' + width'
+    let out = recover String(file.content.size()) end
+    var i: USize = 0
+    while i < _elems.size() do
+      match _kind(i)
+      | let _: TokenKind =>
+        out.append(file.content, _offset(i), _finish(i) - _offset(i))
       end
+      i = i + 1
     end
     consume out
 
-class ChildIterator is Iterator[USize]
+  fun val _node(i: USize): Node ? =>
+    if i >= _elems.size() then error end
+    Node._create(this, i)
+
+  fun _kind(i: USize): SyntaxKind =>
+    try _elems(i)?._1 else _Unreachable(); NdError end
+
+  fun _offset(i: USize): USize =>
+    try _elems(i)?._2.usize() else _Unreachable(); 0 end
+
+  fun _size(i: USize): USize =>
+    try _elems(i)?._3.usize() else _Unreachable(); 0 end
+
+  fun _finish(i: USize): USize =>
+    """
+    The byte offset just past element `i`: the next element's after the
+    subtree, or the file's size.
+    """
+    let next = i + _size(i)
+    if next < _elems.size() then _offset(next) else file.content.size() end
+
+  fun _elements(): Array[SyntaxElement] val =>
+    _elems
+
+class val Node is Equatable[Node]
   """
-  The indices of the direct children of one element.
+  One element of a tree, with the tree. Built only by the tree from an
+  index it produced, so every method is total. Two nodes are equal when
+  they are the same element of the same tree object; a node from an
+  earlier parse of the same file is never equal to one from a later.
+  A kept `Node` keeps its whole tree alive.
   """
-  let _tree: SyntaxTree box
+  let _tree: SyntaxTree
+  let _i: USize
+
+  new val _create(tree: SyntaxTree, index: USize) =>
+    _tree = tree
+    _i = index
+
+  fun _index(): USize =>
+    _i
+
+  fun _size(): USize =>
+    _tree._size(_i)
+
+  fun kind(): SyntaxKind =>
+    """
+    A `TokenKind` for a leaf, a `NodeKind` for an interior node.
+    """
+    _tree._kind(_i)
+
+  fun offset(): USize =>
+    """
+    The byte offset of the first byte.
+    """
+    _tree._offset(_i)
+
+  fun finish(): USize =>
+    """
+    The byte offset just past the last byte.
+    """
+    _tree._finish(_i)
+
+  fun width(): USize =>
+    """
+    The number of bytes covered.
+    """
+    finish() - offset()
+
+  fun is_leaf(): Bool =>
+    """
+    Whether the kind is a `TokenKind`.
+    """
+    match kind()
+    | let _: TokenKind => true
+    else
+      false
+    end
+
+  fun is_trivia(): Bool =>
+    """
+    Whether this is a whitespace or comment leaf.
+    """
+    match kind()
+    | TkWhitespace | TkLineComment | TkNestedComment => true
+    else
+      false
+    end
+
+  fun text(): String =>
+    """
+    The bytes covered, as a view of the file's content.
+    """
+    _tree.file.content.trim(offset(), finish())
+
+  fun span(): diag.Span =>
+    """
+    The bytes covered, as a span in the tree's file.
+    """
+    diag.Span(_tree.file.dir, _tree.file.name, offset(), width())
+
+  fun children(): Iterator[Node] =>
+    """
+    The direct children in order, trivia included.
+    """
+    _Children(_tree, _i)
+
+  fun child(k: SyntaxKind): (Node | None) =>
+    """
+    The first direct child of kind `k`.
+    """
+    for c in children() do
+      if c.kind() is k then return c end
+    end
+    None
+
+  fun first_token(): (TokenKind | None) =>
+    """
+    The kind of the first direct child that is a leaf and not trivia.
+    """
+    for c in children() do
+      match c.kind()
+      | TkWhitespace | TkLineComment | TkNestedComment => None
+      | let t: TokenKind => return t
+      end
+    end
+    None
+
+  fun eq(that: Node box): Bool =>
+    """
+    The same element of the same tree object.
+    """
+    (_tree is that._tree) and (_i == that._i)
+
+class _Nodes is Iterator[Node]
+  let _tree: SyntaxTree
+  var _next: USize = 0
+
+  new create(tree: SyntaxTree) =>
+    _tree = tree
+
+  fun has_next(): Bool =>
+    _next < _tree.size()
+
+  fun ref next(): Node =>
+    let n = Node._create(_tree, _next)
+    _next = _next + 1
+    n
+
+class _Children is Iterator[Node]
+  let _tree: SyntaxTree
   let _limit: USize
   var _next: USize
 
-  new create(tree: SyntaxTree box, parent: USize, span: USize) =>
+  new create(tree: SyntaxTree, parent: USize) =>
     _tree = tree
     _next = parent + 1
-    _limit = parent + span
+    _limit = parent + tree._size(parent)
 
   fun has_next(): Bool =>
     _next < _limit
 
-  fun ref next(): USize ? =>
-    let current = _next
-    _next = _next + _tree.subtree_size(current)?
-    current
-
-class TreeWalk is Iterator[(USize, USize, USize, SyntaxKind, USize)]
-  """
-  A pre-order walk yielding `(index, depth, offset, kind, width)`.
-
-  Depth and offset are both accumulated, so a full walk costs one pass
-  rather than one `offset` call per element.
-  """
-  let _tree: SyntaxTree box
-  var _index: USize = 0
-  var _offset: USize = 0
-  embed _ends: Array[USize] = Array[USize]
-
-  new _create(tree: SyntaxTree box) =>
-    _tree = tree
-
-  fun has_next(): Bool =>
-    _index < _tree.size()
-
-  fun ref next(): (USize, USize, USize, SyntaxKind, USize) ? =>
-    // Leave any subtrees this element is past.
-    while
-      try _ends(_ends.size() - 1)? <= _index else false end
-    do
-      _ends.pop()?
-    end
-
-    let i = _index
-    let depth = _ends.size()
-    let k = _tree.kind(i)?
-    let w = _tree.width(i)?
-    let span = _tree.subtree_size(i)?
-    let at = _offset
-
-    if span == 1 then
-      _offset = _offset + w
-    else
-      _ends.push(i + span)
-    end
-
-    _index = _index + 1
-    (i, depth, at, k, w)
+  fun ref next(): Node =>
+    let n = Node._create(_tree, _next)
+    _next = _next + _tree._size(_next)
+    n
