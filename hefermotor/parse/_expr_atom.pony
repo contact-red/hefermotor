@@ -133,6 +133,12 @@ primitive _Object
   ponyc's `object`: an anonymous type with its members.
   """
   fun apply(p: _Parser ref) =>
+    // A method's default argument can hold another object literal, a
+    // cycle through the method and parameter rules that the term rule
+    // alone would count once, so it carries its own descent.
+    if p.too_deep("object literal") then
+      return
+    end
     p.start(NdObject)
     p.bump()
     _Annotated(p)
@@ -148,6 +154,7 @@ primitive _Object
     _Members(p)
     p.expect(TkEnd, "`end`")
     p.finish()
+    p.ascend()
 
 primitive _Lambda
   """
@@ -155,6 +162,11 @@ primitive _Lambda
   brace.
   """
   fun apply(p: _Parser ref, kind: NodeKind) =>
+    // A parameter's default or a capture's value can hold another
+    // lambda; the same reason as `_Object`.
+    if p.too_deep("lambda") then
+      return
+    end
     p.start(kind)
     p.bump()
     _Annotated(p)
@@ -189,6 +201,7 @@ primitive _Lambda
       p.bump()
     end
     p.finish()
+    p.ascend()
 
 primitive _LambdaParams
   fun apply(p: _Parser ref) =>

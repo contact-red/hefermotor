@@ -75,6 +75,14 @@ class val ParsedFile
     uses = uses'
     diagnostics = diagnostics'
 
+primitive StackNeed
+  """
+  The scheduler thread stack, in bytes, within which the parser refuses
+  a region at its depth limit rather than overflows, whatever the
+  nesting: 3 MiB.
+  """
+  fun apply(): USize => 3 * 1024 * 1024
+
 primitive Parse
   """
   `uses_only` reads the module's `use` section, stops at the first type

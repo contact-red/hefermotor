@@ -18,6 +18,8 @@ actor \nodoc\ Main is TestList
     test(_TestCheckArgs)
     test(_TestSearchRootOrder)
     test(_TestStdlibSlot)
+    test(_TestStackCheck)
+    test(_TestRunShortStackExit2)
     test(_TestJsonString)
     test(_TestRunJsonOnStdoutExit1)
     test(_TestRunCleanExit0)
@@ -143,6 +145,16 @@ primitive \nodoc\ _StubChecker
     : Promise[schedule.Report]
   =>
     schedule.Schedule(program, config, _NoParse, _StubAnalysis)
+
+primitive \nodoc\ _EnoughStack
+  """
+  A stack limit that never refuses, so a `Run` test does not depend on
+  the shell's `ulimit -s`.
+  """
+  fun apply(): (None | StackTooSmall) => None
+
+primitive \nodoc\ _ShortStack
+  fun apply(): (None | StackTooSmall) => StackTooSmall(2 * 1024 * 1024, true)
 
 primitive \nodoc\ _RejectingChecker
   """
@@ -464,7 +476,7 @@ primitive \nodoc\ _Ended
     let codes = _ExitCodes
     let env = _TestEnv(h, args, out, err, codes, vars)
     h.long_test(2_000_000_000)
-    Run(env, fs, "/work", check)
+    Run(env, fs, "/work", check, _EnoughStack)
       .next[None]({(ended: I32)(h, out, err, codes, after) =>
         out.contents(Promise[Array[String] val].>next[None](
           {(prints: Array[String] val)(h, err, codes, after, ended) =>
@@ -601,7 +613,7 @@ class \nodoc\ iso _TestRunRelativeBaseExit2 is UnitTest
     let env = _TestEnv(h, ["hefermotor"; "check"; "--path=/pkgs"],
       _Capture, err, codes)
     h.long_test(2_000_000_000)
-    Run(env, _Fixture.fs(), ".", _StubChecker)
+    Run(env, _Fixture.fs(), ".", _StubChecker, _EnoughStack)
       .next[None]({(ended: I32)(h, err) =>
         h.assert_eq[I32](2, ended)
         err.contents(Promise[Array[String] val].>next[None](
@@ -609,6 +621,42 @@ class \nodoc\ iso _TestRunRelativeBaseExit2 is UnitTest
             h.assert_eq[USize](1, errors.size())
             try h.assert_true(errors(0)?.contains("not absolute")) end
             h.complete(true)
+          }))
+      })
+
+class \nodoc\ iso _TestRunShortStackExit2 is UnitTest
+  fun name(): String => "command/a short scheduler stack exits 2"
+
+  fun apply(h: TestHelper) =>
+    """
+    A refusal from the stack limit ends the run before discovery: exit
+    2, the refusal on stderr, nothing on stdout.
+    """
+    let codes = _ExitCodes
+    let out = _Capture
+    let err = _Capture
+    let env = _TestEnv(h, ["hefermotor"; "check"; "/pkgs/c"; "--path=/pkgs"],
+      out, err, codes)
+    h.long_test(2_000_000_000)
+    Run(env, _Fixture.fs(), "/work", _StubChecker, _ShortStack)
+      .next[None]({(ended: I32)(h, out, err, codes) =>
+        h.assert_eq[I32](2, ended)
+        codes.contents(Promise[Array[I32] val].>next[None](
+          {(c: Array[I32] val)(h, out, err) =>
+            h.assert_array_eq[I32]([2], c)
+            out.contents(Promise[Array[String] val].>next[None](
+              {(lines: Array[String] val)(h, err) =>
+                h.assert_eq[USize](0, lines.size(), "stdout")
+                err.contents(Promise[Array[String] val].>next[None](
+                  {(errors: Array[String] val)(h) =>
+                    h.assert_eq[USize](1, errors.size(), "stderr")
+                    try
+                      h.assert_true(errors(0)?.contains("2048 KiB stack"))
+                      h.assert_true(errors(0)?.contains("unlimited"))
+                    end
+                    h.complete(true)
+                  }))
+              }))
           }))
       })
 
@@ -668,7 +716,7 @@ class \nodoc\ iso _TestRunRejectedReportLeaves70 is UnitTest
       ["hefermotor"; "check"; "/pkgs/d"; "--path=/pkgs"],
       _Capture, _Capture, codes)
     h.long_test(2_000_000_000)
-    Run(env, _Fixture.fs(), "/work", _RejectingChecker)
+    Run(env, _Fixture.fs(), "/work", _RejectingChecker, _EnoughStack)
       .next[None](
         {(ended: I32) => h.fail("a rejected report must not fulfil") },
         {()(h, codes) =>
@@ -759,10 +807,10 @@ class \nodoc\ iso _TestRunReversedFixtureIsIdentical is UnitTest
     let again = _Capture
     h.long_test(2_000_000_000)
     Run(_TestEnv(h, args, first, _Capture, _ExitCodes), _Fixture.fs(),
-      "/work", _StubChecker)
+      "/work", _StubChecker, _EnoughStack)
       .next[None]({(ended: I32)(h, args, first, again) =>
         Run(_TestEnv(h, args, again, _Capture, _ExitCodes),
-          _Fixture.reversed(), "/work", _StubChecker)
+          _Fixture.reversed(), "/work", _StubChecker, _EnoughStack)
           .next[None]({(ended': I32)(h, first, again) =>
             first.contents(Promise[Array[String] val].>next[None](
               {(a: Array[String] val)(h, again) =>
@@ -776,3 +824,49 @@ class \nodoc\ iso _TestRunReversedFixtureIsIdentical is UnitTest
               }))
           })
       })
+
+class \nodoc\ iso _TestStackCheck is UnitTest
+  fun name(): String => "command/the stack check's arithmetic"
+
+  fun apply(h: TestHelper) =>
+    """
+    The runtime's rule over a finite and an unlimited soft limit, each
+    with the resulting thread stack below, at and above the need: a
+    finite limit is the stack, an unlimited one leaves the C library's
+    default, a limit below `PTHREAD_STACK_MIN` does too, and one at it
+    is the stack.
+    """
+    let need = parse.StackNeed()
+    let mib: USize = 1024 * 1024
+    let min: U64 = 16 * 1024
+    // (soft limit, libc default, expected thread stack, refused)
+    let cases: Array[((U64 | None), USize, USize, Bool)] = [
+      ((need - mib).u64(), 8 * mib, need - mib, true)
+      (need.u64(), 128 * 1024, need, false)
+      ((need + mib).u64(), 128 * 1024, need + mib, false)
+      (None, 128 * 1024, 128 * 1024, true)
+      (None, need, need, false)
+      (None, 8 * mib, 8 * mib, false)
+      (min - 1, 8 * mib, 8 * mib, false)
+      (min - 1, 2 * mib, 2 * mib, true)
+      (min, 8 * mib, min.usize(), true)
+    ]
+    for (limit, default, stack, refused) in cases.values() do
+      let label: String val = match limit
+        | let l: U64 => "limit " + l.string()
+        | None => "unlimited"
+        end + ", default " + default.string()
+      h.assert_eq[USize](stack,
+        StackCheck.thread_stack(limit, min, default), label)
+      match StackCheck.check(limit, min, default)
+      | let s: StackTooSmall =>
+        h.assert_true(refused, label + ": refused")
+        h.assert_eq[USize](stack, s.thread_stack, label)
+        h.assert_eq[Bool](limit is None, s.unlimited, label)
+        h.assert_true(s.string().contains(
+          (stack / 1024).string() + " KiB stack"), label + ": message")
+        h.assert_eq[Bool](limit is None,
+          s.string().contains("unlimited"), label + ": message")
+      | None => h.assert_false(refused, label + ": accepted")
+      end
+    end

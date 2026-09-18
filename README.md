@@ -40,3 +40,10 @@ beside the `ponyc` on `PATH`, then each `--path`, then `PONYPATH`, then
 to stderr in ponyc's shape; `--json` prints one document to stdout
 instead. The exit code is 0 with nothing to report, 1 with diagnostics,
 2 when the run could not start, and 70 for an internal error.
+
+The parser bounds its recursion at a depth that needs 3 MiB of stack
+per scheduler thread, and the runtime sizes each thread's stack from
+`ulimit -s`. So `hefermotor check` refuses to start, with exit 2, when
+the soft limit is below 3072 KiB, and also when it is unlimited,
+because the C library's default thread stack then applies: 2 MiB on
+glibc, 128 KiB on musl. Run it under `ulimit -s 8192`.

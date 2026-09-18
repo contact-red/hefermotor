@@ -13,9 +13,15 @@ primitive _TokenSets
 
   fun nesting_close(): Array[TokenKind] val =>
     """
-    The tokens that close a nested region.
+    Where a region refused for depth ends: a closing token, the end of
+    the source, or the start of the next item or member, so that a
+    refusal inside a method body costs the rest of that body and not
+    the rest of the file.
     """
-    [TkRparen; TkRsquare; TkRbrace; TkEnd; TkEof]
+    [ TkRparen; TkRsquare; TkRbrace; TkEnd; TkEof
+      TkUse; TkType; TkInterface; TkTrait
+      TkPrimitive; TkStruct; TkClass; TkActor
+      TkFun; TkBe; TkNew ]
 
   fun field_start(): Array[TokenKind] val =>
     [TkVar; TkLet; TkEmbed]
