@@ -12,8 +12,8 @@ decision log.
 
 ## Building
 
-* Install [corral](https://github.com/ponylang/corral) and
-  [ponyc](https://github.com/ponylang/ponyc)
+* Install [corral](https://github.com/ponylang/corral),
+  [ponyc](https://github.com/ponylang/ponyc) and python3
 * `make` runs the source check, builds the tests and the `hefermotor`
   command into `build/debug/`, and runs the tests
 * `make determinism` checks, with the `ponyc` on `PATH`, that two runs

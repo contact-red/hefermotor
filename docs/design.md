@@ -845,6 +845,45 @@ the lexer produced (T7).
    a redistribution of the source. Whether M0's ports of ponyc's
    algorithms (`find_path`, `package_dependency_groups`) need naming
    too is open.
+3. **The parser, the grammar and the tree, verbatim.** pony-lsp2's
+   `parser.pony`, `grammar.pony`, `type_grammar.pony`,
+   `expr_grammar.pony`, `expr_atom.pony`, `expr_control.pony`,
+   `_expr_mode.pony` and `token_sets.pony` land as `_`-prefixed files
+   with `Parser`, `TokenSets` and the grammar's entry point (now
+   `_ParseModule`) made package-private and task 2's `_TokenStream`
+   name applied; `syntax_tree.pony` and `syntax_diagnostic.pony` land
+   byte for byte and `node_kind.pony` with one comment renamed to
+   `_Parser.wrap_from`, all three public, `SyntaxDiagnostic` included:
+   it is the type of `SyntaxTree`'s public `diagnostics` field, making
+   it private would edit two of the three, no public entry point
+   produces a `SyntaxTree` yet, and task 7 deletes the type. Two
+   sentences of the quarry's prose were cut or corrected: `_Members`'
+   docstring gave a language server as the reason for accepting fields
+   after methods, and the nesting test's docstring said parentheses
+   meet the limit at 249 where the test uses 1249. Other rationale in
+   the quarry that names editor features (outline, folding, hover,
+   selection) is left as written. `Parse.apply` runs `_ParseModule`
+   over the file and drops the tree and the records, so the harnesses
+   that run on every PR run the parser over the stdlib from this task.
+   `tools/grammar/guard.py` (pony-lsp2's `grammar_guard.py`, with a
+   one-pass scan for non-code, `too_deep` as the only guard, `_Rule(p,
+   ...)` as the only edge shape, a refusal of a directory with no rule,
+   and a self-test tree it must fail before the real tree is trusted)
+   runs under `lint-source`: 67 rules, 7 guarded, no unguarded
+   recursion cycle. The tree and grammar tests are pony-lsp2's with
+   their names in this project's form. Measured: `hefermotor check`
+   over the stdlib went from 0.23 s to 0.69 s in a debug build (0.4 s
+   release) and from 34 MB to 155–185 MB peak RSS, on 64 cores; per
+   file the peak is 1.1–1.5 KB per token, held until the file's
+   behaviour ends, with `_Symbols()` rebuilt per symbol the largest
+   share (task 4 makes the tables fields); the deepest grammar
+   recursion over the stdlib is 23. The 2500 limit refuses before a
+   crash only when each scheduler thread has about 2.6 MB of stack:
+   under glibc `ulimit -s 2048` a file of 2100 nested `object fun f(x:
+   A = ` (twelve frames per level, the heaviest shape) segfaults, and
+   under musl with an unlimited limit the runtime's 128 KiB threads
+   crash at 150 nested parentheses; task 5 adds the refusal Divergence
+   5 of Discussion #13 describes.
 
 ### The ponyc-bump procedure
 

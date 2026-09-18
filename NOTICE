@@ -7,7 +7,13 @@ BSD 2-Clause licence reproduced below. The ported material is:
   and carrying ponyc's token enumerator names;
 - the lexer in hefermotor/parse/_lexer.pony and the string-literal
   escape decoding in hefermotor/parse/string_literal.pony, Pony
-  rewrites of the lexing rules in src/libponyc/ast/lexer.c.
+  rewrites of the lexing rules in src/libponyc/ast/lexer.c;
+- the grammar in hefermotor/parse/_grammar.pony,
+  _type_grammar.pony, _expr_grammar.pony, _expr_atom.pony and
+  _expr_control.pony, a Pony rewrite, rule for rule, of the grammar
+  in src/libponyc/ast/parser.c; and the top-level resynchronisation
+  set in hefermotor/parse/_token_sets.pony, the union of ponyc's two
+  RESTART sets.
 
 Copyright (C) 2016-2020, The Pony Developers
 Copyright (c) 2014-2015, Causality Ltd.
