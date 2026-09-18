@@ -7,6 +7,8 @@ actor \nodoc\ Main is TestList
   new make() => None
 
   fun tag tests(test: PonyTest) =>
+    _LexerTests.tests(test)
+    _TokenKindTests.tests(test)
     test(_TestBareUse)
     test(_TestSchemesAliasesAndGuards)
     test(_TestFfiExcluded)
