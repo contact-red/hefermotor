@@ -53,11 +53,21 @@ primitive _Use
     p.start(NdUse)
     p.bump()
 
-    if p.at(TkId) and (p.nth(1) is TkAssign) then
+    // ponyc's `use_name` is optional on its first token only: once an
+    // identifier is there, the `=` is required, and without it ponyc
+    // fails the use and resumes at the next top-level keyword, which
+    // the section loop takes.
+    if p.at(TkId) then
       p.start(NdUseName)
       p.bump()
-      p.bump()
+      let assigned = p.expect(TkAssign, "=")
       p.finish()
+      if (not assigned) and
+        (p.eof() or p.at_any(_TokenSets.top_level()))
+      then
+        p.finish()
+        return
+      end
     end
 
     if p.at(TkString) then

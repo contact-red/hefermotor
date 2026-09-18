@@ -5,6 +5,9 @@ primitive \nodoc\ _GrammarTests is TestList
     test(_TestEntityExtents)
     test(_TestTypeGrammar)
     test(_TestUseForms)
+    test(_TestUseNameCommits)
+    test(_TestUseNameBeforeAKeyword)
+    test(_TestBumpAtTheEnd)
     test(_TestMethodBodyKeepsItsLocals)
     test(_TestNestedBlocksInABody)
     test(_TestBadMemberCostsOneMember)
@@ -139,6 +142,73 @@ class \nodoc\ iso _TestUseForms is UnitTest
       _Clean(h, tree, src)
       h.assert_eq[USize](1, _Find.count(tree, NdUse), "for: " + src)
     end
+
+class \nodoc\ iso _TestUseNameCommits is UnitTest
+  fun name(): String => "parse/grammar: a use name commits at the identifier"
+
+  fun apply(h: TestHelper) =>
+    """
+    ponyc's `use_name` is optional on its first token only: once an
+    identifier follows `use`, the `=` is required. So `use x "a"` is a
+    `use` named `x` with one diagnostic at the string, not an error
+    node over `x "a"`.
+    """
+    let src = "use x \"a\"\n"
+    let tree = _ParseModule(src)
+    h.assert_eq[String](src, tree.reprint(), "reprint differs")
+    h.assert_eq[USize](1, _Find.count(tree, NdUse))
+    h.assert_eq[USize](1, _Find.count(tree, NdUseName))
+    h.assert_eq[USize](0, _Find.count(tree, NdError))
+    h.assert_eq[String]("x", _Find.text(h, tree, NdUseName))
+    h.assert_eq[USize](1, tree.diagnostics.size())
+    try
+      let d = tree.diagnostics(0)?
+      h.assert_eq[USize](6, d.offset)
+      h.assert_eq[String]("expected =, found TkString", d.message)
+    end
+
+class \nodoc\ iso _TestUseNameBeforeAKeyword is UnitTest
+  fun name(): String => "parse/grammar: a use name before a keyword"
+
+  fun apply(h: TestHelper) =>
+    """
+    `use x` with no `=` and a top-level keyword next ends the use
+    there, as ponyc's failed use resumes at the keyword: one
+    diagnostic, no error node, and the next item kept.
+    """
+    let cases: Array[(String val, NodeKind, String val)] = [
+      ("use x\nclass Foo\n", NdClassDef, "TkClass")
+      ("use x\nuse \"b\"\n", NdUse, "TkUse")
+      ("use x\n", NdModule, "TkEof")
+    ]
+    for (src, kept, found) in cases.values() do
+      let tree = _ParseModule(src)
+      h.assert_eq[String](src, tree.reprint(), "reprint differs")
+      h.assert_eq[USize](0, _Find.count(tree, NdError), "for: " + src)
+      h.assert_eq[USize](1, tree.diagnostics.size(), "for: " + src)
+      h.assert_eq[USize](if kept is NdUse then 2 else 1 end,
+        _Find.count(tree, kept), "for: " + src)
+      try
+        h.assert_eq[String]("expected =, found " + found,
+          tree.diagnostics(0)?.message, "for: " + src)
+      end
+    end
+
+class \nodoc\ iso _TestBumpAtTheEnd is UnitTest
+  fun name(): String => "parse/grammar: bump at the end emits TkEof once"
+
+  fun apply(h: TestHelper) =>
+    let p = _Parser("x ")
+    p.start(NdModule)
+    p.bump()
+    p.bump()
+    p.bump()
+    p.bump()
+    p.finish()
+    let tree = p.build()
+    h.assert_eq[String](
+      "NdModule >TkId >TkWhitespace >TkEof", _Shape(tree))
+    h.assert_eq[String]("x ", tree.reprint())
 
 class \nodoc\ iso _TestMethodBodyKeepsItsLocals is UnitTest
   fun name(): String => "parse/grammar: a body keeps its locals"

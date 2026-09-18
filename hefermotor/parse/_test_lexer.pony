@@ -1,6 +1,7 @@
 use "collections"
 use "itertools"
 use "pony_test"
+use "pony_check"
 
 primitive \nodoc\ _LexerTests is TestList
   fun tag tests(test: PonyTest) =>
@@ -20,6 +21,10 @@ primitive \nodoc\ _LexerTests is TestList
     test(_TestLexErrorDoesNotStopScanning)
     test(_TestNewlineInsideString)
     test(_TestEveryTruncationIsCovered)
+    test(_TestScansOnDemand)
+    test(_TestFailuresInTokenOrder)
+    test(Property1UnitTest[(Array[U8] val, Array[USize] val)](
+      _AccessOrderDoesNotMatter))
 
 primitive \nodoc\ _Lex
   fun apply(src: String val): Array[(String val, String val)] =>
@@ -27,7 +32,7 @@ primitive \nodoc\ _Lex
     Lex `src` into `(kind name, exact text)` pairs, so a test can assert on
     both classification and extent at once.
     """
-    let stream = recover val _TokenStream(src) end
+    let stream = _TokenStream(src)
     let out = Array[(String val, String val)]
     for (kind, offset, width) in stream.values() do
       out.push((kind.name(),
@@ -51,7 +56,7 @@ primitive \nodoc\ _Assert
     Every byte lies in exactly one token: widths sum to the source size, and
     only the final `TkEof` has zero width.
     """
-    let stream = recover val _TokenStream(src) end
+    let stream = _TokenStream(src)
     var total: USize = 0
     var count: USize = 0
     var last = "".clone()
@@ -105,15 +110,11 @@ class \nodoc\ iso _TestEmptySource is UnitTest
   fun name(): String => "parse/lexer: empty source"
 
   fun apply(h: TestHelper) =>
-    let stream = recover val _TokenStream("") end
-    h.assert_eq[USize](1, stream.size())
-    try
-      (let kind, let width) = stream(0)?
-      h.assert_eq[String]("TkEof", kind.name())
-      h.assert_eq[U32](0, width)
-    else
-      h.fail("no token")
-    end
+    let stream = _TokenStream("")
+    (let kind, let width) = stream.token(0)
+    h.assert_eq[String]("TkEof", kind.name())
+    h.assert_eq[U32](0, width)
+    h.assert_eq[USize](0, stream._scanned())
 
 class \nodoc\ iso _TestWhitespaceRuns is UnitTest
   fun name(): String => "parse/lexer: whitespace is one token per run"
@@ -521,3 +522,262 @@ class \nodoc\ iso _TestFixedTextIsNonEmpty is UnitTest
         h.assert_ne[USize](0, t.size(), kind.name() + " has empty text")
       end
     end
+
+class \nodoc\ iso _TestScansOnDemand is UnitTest
+  fun name(): String => "parse/lexer: scans on demand"
+
+  fun apply(h: TestHelper) =>
+    """
+    `token(i)` scans up to token `i` and no further, and past the end
+    every index is `(TkEof, 0)` without scanning anything more.
+    """
+    let src = recover val
+      let s = String
+      var i: USize = 0
+      while i < 10_000 do s.append("x "); i = i + 1 end
+      consume s
+    end
+    let stream = _TokenStream(src)
+    h.assert_eq[String]("TkId", stream.token(0)._1.name())
+    h.assert_eq[USize](1, stream._scanned())
+    h.assert_eq[String]("TkWhitespace", stream.token(7)._1.name())
+    h.assert_eq[USize](8, stream._scanned())
+    h.assert_eq[String]("TkId", stream.token(2)._1.name())
+    h.assert_eq[USize](8, stream._scanned())
+    (let kind, let width) = stream.token(20_000)
+    h.assert_eq[String]("TkEof", kind.name())
+    h.assert_eq[U32](0, width)
+    h.assert_eq[USize](20_000, stream._scanned())
+    h.assert_eq[String]("TkEof", stream.token(30_000)._1.name())
+    h.assert_eq[USize](20_000, stream._scanned())
+
+class \nodoc\ iso _TestFailuresInTokenOrder is UnitTest
+  fun name(): String => "parse/lexer: failures in token order"
+
+  fun apply(h: TestHelper) =>
+    """
+    Each refused token is in the failure list with its index, offset
+    and length, in token order, and the cursor walks them once. A byte
+    that starts no token is one failure of one byte, and an unterminated
+    literal or comment is one to the end of the source.
+    """
+    // `abc $ b <0xEF> /* x`: the failures are tokens 2, 6 and 8 at
+    // offsets 4, 8 and 10, so an index cannot pass for an offset.
+    let stream = _TokenStream(String.from_array(
+      [as U8: 'a'; 'b'; 'c'; ' '; '$'; ' '; 'b'; ' '; 0xEF; ' '; '/'; '*'
+        ' '; 'x']))
+    h.assert_is[(Any | None)](None, stream.next_failure(),
+      "a failure before anything is scanned")
+    stream.take_failure()
+    h.assert_eq[String]("TkLexError", stream.token(2)._1.name())
+    match stream.next_failure()
+    | (let index: USize, let f: UnrecognizedCharacter, let at: USize,
+      let len: USize)
+    =>
+      h.assert_eq[USize](2, index)
+      h.assert_eq[U8]('$', f.byte)
+      h.assert_eq[USize](4, at)
+      h.assert_eq[USize](1, len)
+    else
+      h.fail("expected UnrecognizedCharacter('$')")
+    end
+    stream.take_failure()
+    h.assert_is[(Any | None)](None, stream.next_failure(),
+      "a failure past the scanned tokens")
+    stream.take_failure()
+    h.assert_eq[String]("TkEof", stream.token(100)._1.name())
+    match stream.next_failure()
+    | (let index: USize, let f: UnrecognizedCharacter, let at: USize,
+      let len: USize)
+    =>
+      h.assert_eq[USize](6, index)
+      h.assert_eq[U8](0xEF, f.byte)
+      h.assert_eq[USize](8, at)
+      h.assert_eq[USize](1, len)
+    else
+      h.fail("expected UnrecognizedCharacter(0xEF)")
+    end
+    stream.take_failure()
+    match stream.next_failure()
+    | (let index: USize, UnterminatedComment, let at: USize,
+      let len: USize)
+    =>
+      h.assert_eq[USize](8, index)
+      h.assert_eq[USize](10, at)
+      h.assert_eq[USize](4, len)
+    else
+      h.fail("expected UnterminatedComment")
+    end
+    stream.take_failure()
+    h.assert_is[(Any | None)](None, stream.next_failure())
+    for (src, index, at, len) in
+      [as (String, USize, USize, USize):
+        ("'a", 0, 0, 2); ("x \"ab", 2, 2, 3); ("x \"\"\"ab\"", 2, 2, 6)]
+        .values()
+    do
+      let literal = _TokenStream(src)
+      literal.token(index)
+      match literal.next_failure()
+      | (index, UnterminatedLiteral, at, len) => None
+      else
+        h.fail("expected UnterminatedLiteral over the rest of " + src)
+      end
+    end
+
+primitive \nodoc\ _Frozen[A: Any val]
+  fun apply(a: Array[A] box): Array[A] val =>
+    let out = recover iso Array[A](a.size()) end
+    for x in a.values() do out.push(x) end
+    consume out
+
+primitive \nodoc\ _Sized[A: Any val]
+  fun apply(gen: Generator[A], sizes: Generator[USize])
+    : Generator[Array[A] val]
+  =>
+    """
+    Arrays whose size is drawn from `sizes`. pony_check's `array_of`
+    with a lower bound of zero stops after each element on a coin toss,
+    so its sizes are almost always below three.
+    """
+    sizes.flat_map[Array[A] val]({(n: USize) =>
+      Generators.array_of[A](gen, n, n)
+        .map[Array[A] val]({(a: Array[A]) => _Frozen[A](a) }) })
+
+primitive \nodoc\ _EagerScan
+  """
+  Every token of a source in one pass, over the lexer's own scanning
+  helpers, with the newline flag carried in a local. `token(i)` must
+  give the same tokens whatever order it is asked in, so this is the
+  oracle for the state a stream carries between calls.
+  """
+  fun apply(src: String val): Array[(TokenKind, U32)] =>
+    let stream = _TokenStream(src)
+    let out = Array[(TokenKind, U32)]
+    let n = src.size()
+    var i: USize = 0
+    var after_newline = true
+    while i < n do
+      let c = try src(i)? else 0 end
+      if (c == ' ') or (c == '\t') or (c == '\r') or (c == '\n') then
+        (let j, let saw_newline) = stream._space(i, n)
+        out.push((TkWhitespace, (j - i).u32()))
+        if saw_newline then after_newline = true end
+        i = j
+      elseif (c == '/') and (stream._byte(i + 1) == '/') then
+        let j = stream._line_comment(i, n)
+        out.push((TkLineComment, (j - i).u32()))
+        i = j
+      elseif (c == '/') and (stream._byte(i + 1) == '*') then
+        (let j, let terminated) = stream._nested_comment(i, n)
+        out.push((if terminated then TkNestedComment else TkLexError end,
+          (j - i).u32()))
+        after_newline = false
+        i = j
+      else
+        (let kind, let j, _) = stream._token(i, n, after_newline)
+        out.push((kind, (j - i).u32()))
+        after_newline = false
+        i = j
+      end
+    end
+    out
+
+class \nodoc\ iso _AccessOrderDoesNotMatter
+  is Property1[(Array[U8] val, Array[USize] val)]
+  """
+  Over arbitrary bytes and an arbitrary access sequence -- repeats,
+  jumps forward, an index past the end and then an earlier one -- every
+  `token(i)` equals the eager scan's `i`-th token, the eager scan's
+  widths sum to the source size, the token after the last is `TkEof`
+  with width 0 and so is an index five past it, `_scanned()` never
+  exceeds the largest index asked for plus one, and the failure list
+  holds one record per `TkLexError` scanned, with that token's index,
+  offset and width.
+  """
+  fun name(): String => "parse/lexer: access order does not matter"
+
+  fun params(): PropertyParams =>
+    PropertyParams(where num_samples' = 400)
+
+  fun gen(): Generator[(Array[U8] val, Array[USize] val)] =>
+    // Sources are fragments joined: single bytes, and the openers and
+    // closers that take more than one byte to reach, so that comments,
+    // triple-quoted strings and a newline before a symbol with a
+    // newline form are common shapes.
+    let interesting: Array[U8] val =
+      [' '; '\n'; '\t'; '"'; '\''; '/'; '*'; '('; '['; '-'; '~'; '<'
+        '='; '.'; '_'; '0'; '9'; 'x'; 'e'; '#'; '$'; '\\'; 0xEF; 0]
+    let multi: Array[String] val =
+      ["//"; "/*"; "*/"; "\"\"\""; "\n("; "\n["; "\n-"; "\n-~"; "/* */("]
+    let one = {(b: U8): String => String.from_array([b]) }
+    let fragment: Generator[String] = Generators.frequency[String]([
+      (6, Generators.one_of[U8](interesting).map[String](one))
+      (2, Generators.u8(0, 127).map[String](one))
+      (1, Generators.u8().map[String](one))
+      (3, Generators.one_of[String](multi))
+    ])
+    _Sized[String](fragment, Generators.usize(0, 24))
+      .map[Array[U8] val]({(parts: Array[String] val) =>
+        let out = recover iso Array[U8] end
+        for part in parts.values() do out.append(part.array()) end
+        consume out })
+      .flat_map[(Array[U8] val, Array[USize] val)](
+        {(bytes: Array[U8] val) =>
+          // A token is at least one byte, so indices up to the size
+          // reach every token and a few past it reach the end.
+          _Sized[USize](Generators.usize(0, bytes.size() + 3),
+            Generators.usize(0, 12))
+            .map[(Array[U8] val, Array[USize] val)](
+              {(accesses: Array[USize] val) => (bytes, accesses) }) })
+
+  fun property(sample: (Array[U8] val, Array[USize] val), h: PropertyHelper)
+  =>
+    (let bytes, let accesses) = sample
+    let src = String.from_array(bytes)
+    let expected = _EagerScan(src)
+    var total: USize = 0
+    for (_, width) in expected.values() do total = total + width.usize() end
+    h.assert_eq[USize](src.size(), total, "widths do not cover the source")
+    let random = _TokenStream(src)
+    var highest: USize = 0
+    for i in accesses.values() do
+      (let kind, let width) = random.token(i)
+      highest = highest.max(i)
+      try
+        (let k, let w) = expected(i)?
+        h.assert_true(kind is k, "token " + i.string() + " is " +
+          kind.name() + ", in order it is " + k.name())
+        h.assert_eq[U32](w, width, "width of token " + i.string())
+      else
+        h.assert_true(kind is TkEof, "token " + i.string() + " past the end")
+        h.assert_eq[U32](0, width, "width past the end")
+      end
+      h.assert_true(random._scanned() <= (highest + 1),
+        "scanned " + random._scanned().string() + " tokens for index " +
+        highest.string())
+    end
+    (let after, let after_width) = random.token(expected.size())
+    h.assert_true(after is TkEof, "the token after the last is not TkEof")
+    h.assert_eq[U32](0, after_width, "the token after the last has a width")
+    h.assert_true(random.token(expected.size() + 5)._1 is TkEof,
+      "a later index is not TkEof")
+    // Every token is now scanned: the failure list is one record per
+    // TkLexError, in token order, with the token's index, offset and
+    // width.
+    var offset: USize = 0
+    for (i, (kind, width)) in expected.pairs() do
+      if kind is TkLexError then
+        match random.next_failure()
+        | (let index: USize, _, let at: USize, let len: USize) =>
+          h.assert_eq[USize](i, index, "failure index")
+          h.assert_eq[USize](offset, at, "failure offset")
+          h.assert_eq[USize](width.usize(), len, "failure length")
+        else
+          h.fail("no failure recorded for token " + i.string())
+        end
+        random.take_failure()
+      end
+      offset = offset + width.usize()
+    end
+    h.assert_true(random.next_failure() is None,
+      "a failure with no TkLexError")

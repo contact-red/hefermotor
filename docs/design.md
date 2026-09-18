@@ -876,7 +876,7 @@ the lexer produced (T7).
    release) and from 34 MB to 155–185 MB peak RSS, on 64 cores; per
    file the peak is 1.1–1.5 KB per token, held until the file's
    behaviour ends, with `_Symbols()` rebuilt per symbol the largest
-   share (task 4 makes the tables fields); the deepest grammar
+   share (task 4 makes the symbol table a field); the deepest grammar
    recursion over the stdlib is 23. The 2500 limit refuses before a
    crash only when each scheduler thread has about 2.6 MB of stack:
    under glibc `ulimit -s 2048` a file of 2100 nested default-argument
@@ -885,6 +885,42 @@ the lexer produced (T7).
    under musl with an unlimited limit the runtime's 128 KiB threads
    crash at 150 nested parentheses; task 5 adds the refusal Divergence
    5 of Discussion #13 describes.
+4. **The on-demand lexer.** `_TokenStream.token(i)` scans forward
+   until token `i` exists and returns it, `(TkEof, 0)` at and past the
+   end; the end-of-source token is never stored, so `_scanned()` is the
+   number of real tokens scanned. There is no `size()`; the parser's
+   `_peek` and `flush_trivia` stop at the first kind `token(i)` returns
+   that is not trivia, and `bump` emits the `TkEof` once and then
+   nothing, as the quarry's did with the end token stored.
+   `nth` is deleted with its one caller: `_Use` now commits after an
+   identifier as ponyc's optional `use_name` does (`parser.c:1293-1297`,
+   where `TK_ASSIGN` is `SKIP`, not optional), so `use x "a"` keeps the
+   `use` with `x` as its name and records `expected =` at the string,
+   where the quarry wrapped `x "a"` in an `NdError` and recorded
+   `expected a package path or an FFI declaration` at `x`; a `use x`
+   followed by a top-level keyword ends there, as ponyc's failed use
+   resumes at the keyword, so the next item is not lost. The
+   symbol table is a `let` field built once. Each refused token is in a
+   sparse failure list as `(token index, LexFailure, offset, length)`,
+   read through a cursor (`next_failure`, `take_failure`) that nothing
+   in the parser calls yet; `causes.pony` holds the three `LexFailure`
+   members the lexer distinguishes today (`UnterminatedLiteral`,
+   `UnterminatedComment`, `UnrecognizedCharacter` with its byte) and
+   task 9 adds the other eight with `LexError`. The property over
+   arbitrary bytes and access sequences compares `token(i)` with a
+   test-only eager scan, the quarry's loop written over the lexer's
+   scanning helpers, so the property fails on a fault in the state
+   carried between calls; it also checks every failure record against
+   the scan. Its sources are built from fragments (`//`, `/*`, `"""`,
+   a newline before a symbol with a newline form) as well as bytes,
+   and its sizes are drawn explicitly, because pony_check's `array_of`
+   with a lower bound of zero gives sizes that are almost always below
+   three. A note for task 9: the failure list is unbounded and holds an
+   object per `UnrecognizedCharacter`, about 75 bytes per refused byte
+   for the file's life, where the budget keeps at most 500 records.
+   Measured over the stdlib: release `hefermotor check` 0.4 s to 0.21 s
+   and peak RSS 155–185 MB to 83–92 MB, the per-symbol table rebuild
+   gone; debug 0.70–0.80 s, within the noise of task 3's 0.69 s.
 
 ### The ponyc-bump procedure
 
