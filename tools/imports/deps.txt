@@ -33,6 +33,9 @@ parse/_test_lex_diagnostics.pony:
                        pony_test
 parse/_test_items.pony:
                        pony_test
+parse/_test_properties.pony:
+                       source pony_test pony_check
+parse/_test_seeds.pony:
 discover:              sort source diagnostics parse collections
 discover/disk_file_system.pony:
                        source diagnostics parse files collections
