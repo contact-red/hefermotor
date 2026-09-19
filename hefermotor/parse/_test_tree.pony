@@ -61,14 +61,16 @@ primitive \nodoc\ _Start
     end
 
 primitive \nodoc\ _Shape
-  fun apply(tree: SyntaxTree val): String val =>
+  fun apply(tree: SyntaxTree val, trivia: Bool = true): String val =>
     """
     The tree as nested kind names, so a test can assert on structure in one
-    readable string rather than by walking indices.
+    readable string rather than by walking indices; without the trivia
+    leaves when `trivia` is false.
     """
     let out = recover String end
     let ends = Array[USize]
     for node in tree.nodes() do
+      if (not trivia) and node.is_trivia() then continue end
       let index = node._index()
       while try ends(ends.size() - 1)? <= index else false end do
         try ends.pop()? end
@@ -329,6 +331,28 @@ class \nodoc\ iso _TestTreeCheckErrorRows is UnitTest
         (NdError, 8, 2); (TkUse, 8, 1); (TkWhitespace, 11, 1)
         (TkEof, 12, 1)],
       [expected(8)], "", "a use after an entity is not in the section")
+    // An NdUse child of the module after an entity: the module's child
+    // list is class then use, which the parser never builds.
+    _check2(h, "class C\nuse\n",
+      [(NdModule, 0, 10); (NdClassDef, 0, 5); (TkClass, 0, 1)
+        (TkWhitespace, 5, 1); (TkId, 6, 1); (TkWhitespace, 7, 1)
+        (NdUse, 8, 2); (TkUse, 8, 1); (TkWhitespace, 11, 1)
+        (TkEof, 12, 1)],
+      [], "UsesFirst at element 6", "a use command after an entity")
+    _check2(h, "use\nclass C\n",
+      [(NdModule, 0, 10); (NdUse, 0, 2); (TkUse, 0, 1)
+        (TkWhitespace, 3, 1); (NdClassDef, 4, 5); (TkClass, 4, 1)
+        (TkWhitespace, 9, 1); (TkId, 10, 1); (TkWhitespace, 11, 1)
+        (TkEof, 12, 1)],
+      [], "", "a use command before an entity")
+    // The row reads the module's children only: an NdUse elsewhere is
+    // another row's business.
+    _check2(h, "class C\nuse\n",
+      [(NdModule, 0, 11); (NdClassDef, 0, 8); (TkClass, 0, 1)
+        (TkWhitespace, 5, 1); (TkId, 6, 1); (TkWhitespace, 7, 1)
+        (NdMembers, 8, 3); (NdUse, 8, 2); (TkUse, 8, 1)
+        (TkWhitespace, 11, 1); (TkEof, 12, 1)],
+      [], "", "a use node under an entity is not the module's")
     _check2(h, "x\n", sound, [expected(0); expected(9)],
       "DiagnosticInFile at diagnostic 1", "a span past the end")
     _check2(h, "x\n", sound,

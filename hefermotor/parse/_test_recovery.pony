@@ -5,7 +5,7 @@ primitive \nodoc\ _RecoveryTests is TestList
     test(_TestUseThenUseKeepsBoth)
     test(_TestParenSweep)
     test(_TestEmptyGroupSweeps)
-    test(_TestRefusalStopsAtTheNextItem)
+    test(_TestRefusalStopsAtTheNextEntity)
     test(_TestRefusalStopsAtTheNextMethod)
     test(_TestEveryShapeSurvivesTheLimit)
 
@@ -135,23 +135,24 @@ primitive \nodoc\ _Sweep
     end
     h.assert_true(refused > 0, what + ": no depth in the sweep was refused")
 
-class \nodoc\ iso _TestRefusalStopsAtTheNextItem is UnitTest
-  fun name(): String => "parse/recovery: a refusal stops at the next item"
+class \nodoc\ iso _TestRefusalStopsAtTheNextEntity is UnitTest
+  fun name(): String => "parse/recovery: a refusal stops at the next entity"
 
   fun apply(h: TestHelper) =>
     """
     A region refused for depth with no closer after it ends at the next
-    top-level keyword, whichever it is, so the item is kept and no error
-    node holds its keyword.
+    entity keyword, whichever it is, so the entity is kept and no error
+    node holds its keyword. A `use` after an entity is never an item,
+    so it is not among these.
     """
     // Two arrays rather than one of tuples: a tuple type holding a
     // token kind and a node kind takes ponyc minutes to check.
     let items: Array[String] = [
       "class D"; "actor D"; "primitive D"; "struct D"; "trait D"
-      "interface D"; "type D is E"; "use \"z\""]
+      "interface D"; "type D is E"]
     let kinds: Array[TokenKind] = [
       TkClass; TkActor; TkPrimitive; TkStruct; TkTrait; TkInterface
-      TkType; TkUse]
+      TkType]
     h.assert_eq[USize](items.size(), kinds.size())
     for (i, keyword) in items.pairs() do
       let kind = try kinds(i)? else h.fail("no kind"); return end
@@ -161,11 +162,7 @@ class \nodoc\ iso _TestRefusalStopsAtTheNextItem is UnitTest
       let tree = _ParseText(src)
       _Tree.sound(h, tree, src, keyword)
       h.assert_eq[USize](1, _Tree.depth_diagnostics(src), keyword)
-      if kind is TkUse then
-        h.assert_eq[USize](1, _Find.count(tree, NdUse), keyword)
-      else
-        h.assert_eq[USize](2, _Find.count(tree, NdClassDef), keyword)
-      end
+      h.assert_eq[USize](2, _Find.count(tree, NdClassDef), keyword)
       h.assert_false(_Holds(tree, NdError, kind),
         keyword + ": an error node holds the keyword")
     end

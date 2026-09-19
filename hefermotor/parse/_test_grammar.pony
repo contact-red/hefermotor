@@ -146,15 +146,16 @@ class \nodoc\ iso _TestUseNameCommits is UnitTest
     """
     ponyc's `use_name` is optional on its first token only: once an
     identifier follows `use`, the `=` is required. So `use x "a"` is a
-    `use` named `x` with one diagnostic at the string, not an error
-    node over `x "a"`.
+    `use` named `x` with one diagnostic at the string, which is the
+    command's error item rather than its locator.
     """
     let src = "use x \"a\"\n"
     let tree = _ParseText(src)
     h.assert_eq[String](src, tree.reprint(), "reprint differs")
     h.assert_eq[USize](1, _Find.count(tree, NdUse))
     h.assert_eq[USize](1, _Find.count(tree, NdUseName))
-    h.assert_eq[USize](0, _Find.count(tree, NdError))
+    h.assert_eq[USize](1, _Find.count(tree, NdError))
+    h.assert_eq[String]("\"a\"", _Find.text(h, tree, NdError))
     h.assert_eq[String]("x", _Find.text(h, tree, NdUseName))
     let diagnostics = _Diagnostics(src)
     h.assert_eq[USize](1, diagnostics.size())

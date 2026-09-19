@@ -29,15 +29,29 @@ primitive _TokenSets
   fun method_start(): Array[TokenKind] val =>
     [TkFun; TkBe; TkNew]
 
-  fun member_or_top_level(): Array[TokenKind] val =>
+  fun member_or_entity(): Array[TokenKind] val =>
     """
-    Where a member list ends: the next member, the next item, or the `end`
-    that closes an `object` literal.
+    Where an error item in an entity's member list ends: the next
+    member or the next entity. Not `use` or `end`, which are error
+    items there.
     """
     [ TkVar; TkLet; TkEmbed; TkFun; TkBe; TkNew
-      TkUse; TkType; TkInterface; TkTrait
+      TkType; TkInterface; TkTrait
+      TkPrimitive; TkStruct; TkClass; TkActor ]
+
+  fun member_or_entity_or_end(): Array[TokenKind] val =>
+    """
+    Where an error item in an object literal's member list ends: as in
+    an entity's, or the literal's `end`.
+    """
+    [ TkVar; TkLet; TkEmbed; TkFun; TkBe; TkNew
+      TkType; TkInterface; TkTrait
       TkPrimitive; TkStruct; TkClass; TkActor
       TkEnd ]
+
+  fun entities_or_end(): Array[TokenKind] val =>
+    [ TkType; TkInterface; TkTrait; TkPrimitive
+      TkStruct; TkClass; TkActor; TkEnd ]
 
   fun caps(): Array[TokenKind] val =>
     [TkIso; TkTrn; TkRef; TkVal; TkBox; TkTag]
