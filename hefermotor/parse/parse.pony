@@ -104,5 +104,11 @@ primitive Parse
     _UseScanner(file).run()
 
   fun apply(file: source.SourceFile): ParsedFile =>
-    _ParseModule(file.content)
+    _ParseModule(file)
     ParsedFile(file, uses_only(file), recover val Array[diag.Diagnostic] end)
+
+  fun tree(file: source.SourceFile): SyntaxTree =>
+    """
+    The tree the grammar builds over the whole file.
+    """
+    _ParseModule(file)

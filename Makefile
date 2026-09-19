@@ -77,6 +77,42 @@ build/%/hefermotor_tests: $(SOURCE_FILES) | build/%
 	$(COMPILE_WITH) $(if $(filter release,$*),,--debug) \
 	  -o build/$* -b hefermotor_tests $(SRC_DIR)
 
+syntax_binary := build/release/syntax
+SYNTAX_SOURCE_FILES := $(shell find tools/syntax -name '*.pony')
+
+syntax: $(syntax_binary)
+
+$(syntax_binary): $(SOURCE_FILES) $(SYNTAX_SOURCE_FILES) | build/release
+	$(GET_DEPENDENCIES_WITH)
+	$(COMPILE_WITH) -o build/release -b syntax tools/syntax
+
+# Lexer agreement with ponyc over the stdlib beside the ponyc on PATH.
+# Needs a ponyc checkout (PONYC_SRC) and its built static libraries
+# (PONYC_LIB, the directory holding libponyc-standalone.a); never in CI.
+ponyc_dump := build/release/ponyc_dump
+ponyc_bin := $(shell dirname "$$(readlink -f "$$(command -v ponyc)")")
+stdlib_dir := $(ponyc_bin)/../packages
+
+token-agreement: check-ponyc-vars $(syntax_binary) $(ponyc_dump)
+	find "$(stdlib_dir)" -name '*.pony' | sort | \
+	  xargs tools/agreement/check.py $(syntax_binary) $(ponyc_dump)
+
+check-ponyc-vars:
+	test -n "$(PONYC_SRC)" -a -n "$(PONYC_LIB)" || \
+	  { echo "set PONYC_SRC=<ponyc checkout> PONYC_LIB=<its lib dir>"; \
+	    exit 2; }
+
+# Rebuilt when the checkout's lexer or the library changes, so a bump
+# never compares against the previous ponyc's lexer.
+$(ponyc_dump): tools/agreement/ponyc_dump.c tools/agreement/gen_tk_names.py \
+  $(PONYC_SRC)/src/libponyc/ast/token.h $(PONYC_SRC)/src/libponyc/ast/lexer.c \
+  $(PONYC_LIB)/libponyc-standalone.a | build/release
+	tools/agreement/gen_tk_names.py "$(PONYC_SRC)" > build/release/tk_names.h
+	gcc -O2 -o $@ tools/agreement/ponyc_dump.c -Ibuild/release \
+	  -I"$(PONYC_SRC)/src/libponyc" -I"$(PONYC_SRC)/src" \
+	  -I"$(PONYC_SRC)/src/common" "$(PONYC_LIB)/libponyc-standalone.a" \
+	  "$(PONYC_LIB)/libponyrt-pic.a" -lstdc++ -lm -lz -lpthread -ldl -latomic
+
 build/%/hefermotor: $(SOURCE_FILES) $(CLI_SOURCE_FILES) | build/%
 	$(GET_DEPENDENCIES_WITH)
 	$(COMPILE_WITH) $(if $(filter release,$*),,--debug) \
@@ -123,5 +159,6 @@ build/debug build/release:
 	mkdir -p $@
 
 .PHONY: all cli clean determinism differential docs lint-source \
-  regen-token-kinds TAGS test test-stack \
+  check-ponyc-vars regen-token-kinds syntax TAGS test test-stack \
+  token-agreement \
   unit-tests

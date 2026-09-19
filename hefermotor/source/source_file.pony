@@ -15,7 +15,9 @@ class val SourceFile
     """
   let content: String
     """
-    The file's bytes as read.
+    The file's bytes as read. The parser addresses a file with 32-bit
+    offsets, so a file longer than `U32.max_value()` bytes must not be
+    given to it; `DiskFileSystem` refuses to read one.
     """
   let hash: ContentHash
     """

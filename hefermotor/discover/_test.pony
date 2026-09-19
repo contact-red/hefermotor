@@ -25,6 +25,7 @@ actor \nodoc\ Main is TestList
     test(_TestClassifyUse)
     test(_TestCauseCodesDistinct)
     test(_TestDiskFileSystem)
+    test(_TestDiskFileSystemRefusesAHugeFile)
     _ProgramTests(test)
 
 primitive \nodoc\ _Denied
@@ -581,4 +582,37 @@ class \nodoc\ iso _TestDiskFileSystem is UnitTest
     | IsFile => None
     else
       h.fail("real.pony is a file")
+    end
+
+class \nodoc\ iso _TestDiskFileSystemRefusesAHugeFile is UnitTest
+  fun name(): String => "discover/disk fs: a file of 4 GiB is refused"
+
+  fun apply(h: TestHelper) =>
+    """
+    A sparse file whose length is one past what a 32-bit offset can
+    address: the read is refused with the reason, before any byte is
+    read.
+    """
+    let auth = FileAuth(h.env.root)
+    let path = FilePath(auth, Path.join(Path.dir(__loc.file()),
+      "testdata/huge.pony"))
+    match CreateFile(path)
+    | let f: File =>
+      let made = f.set_length(U32.max_value().usize() + 1)
+      f.dispose()
+      if not made then
+        path.remove()
+        h.fail("could not set the file's length")
+        return
+      end
+    else
+      h.fail("could not create the file")
+      return
+    end
+    let fs = DiskFileSystem(auth)
+    let result = fs.read(path.path)
+    path.remove()
+    match result
+    | let d: Denied => h.assert_eq[String]("file is 4 GiB or larger", d.why)
+    | let s: String => h.fail("read " + s.size().string() + " bytes")
     end

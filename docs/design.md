@@ -979,6 +979,52 @@ the lexer produced (T7).
 
    The use section rule, the members contexts and the `_ClassDef`
    guard of Discussion #13's section 5 are task 10's.
+6. **The tuple, `Node`, `TreeCheck` and `--tokens`.** An element is
+   `(SyntaxKind, U32 offset, U32 subtree size)`; width is derived from
+   the next element's offset, the parser emits offsets and `build`
+   compacts the array. `SyntaxTree._create` holds the `SourceFile`;
+   the public surface is `file`, `size`, `root`, `nodes`, `path_to`
+   and `reprint` (and `diagnostics` until task 7), with `_node`,
+   `_kind`, `_offset`, `_size`, `_finish` and `_elements`
+   package-private; `walk`, `is_leaf(i)`, `children(i)`, `text(i)` and
+   the O(i) `offset(i)` are gone. `Node` carries the tree and an index,
+   every method total, equal only within one tree object. `path_to` is
+   half-open with the `TkEof` exception. `TreeCheck` is one pass with a
+   stack of open nodes over the six tree rows, `OneRoot` also requiring
+   element 0 to be an `NdModule`; with widths derived, a
+   changed size or offset moves bytes between neighbours rather than
+   losing them, so the counterfactuals are a root that stops short, a
+   last element that is not the end, a subtree that overruns or is
+   empty, an offset that goes back, a node whose offset is not its
+   first child's, and an empty node off its place, each with its exact
+   violation set. `DiskFileSystem.read` refuses a file over
+   `U32.max_value()` bytes with `Denied("file is 4 GiB or larger")`,
+   which fails the package as an unreadable file does; the
+   `FileTooLarge` member T5 proposed is not added, since `Denied`
+   already carries the reason as text; the test makes a sparse file of
+   that length. `Parse.tree(file)` returns the tree for tools until task 11
+   puts it on `ParsedFile`. `tools/syntax --tokens` prints
+   `ponyc_name()` per leaf that is not trivia or the end token, which
+   ponyc's dumper stops before, one file per behaviour so that a
+   file's tree is collected before the next is read; `tools/agreement/`
+   holds
+   `ponyc_dump.c` and `check.py` from pony-lsp2 and `gen_tk_names.py`,
+   which reads ponyc's `token.h`; `make token-agreement PONYC_SRC=...
+   PONYC_LIB=...` builds the dumper against `libponyc-standalone.a`
+   and compares over the stdlib beside the `ponyc` on `PATH`: 465
+   files, 465 agree. Measured: the stdlib is 3,724,593 bytes and
+   1,301,593 elements (0.35 per byte, 20.8 MB at 16 bytes each); a
+   program reading and parsing every file on one scheduler thread
+   takes 272 ms in release, of which the per-file `compact()` is about
+   20, and a `Node` walk of every element 48 ms more, about 37 ns a
+   node; Discussion #13 section 10 recorded 0.16 s for pony-lsp2's
+   parser over the same corpus in its own harness, and the difference
+   has not been traced. `hefermotor check` over the stdlib in release
+   is 0.24 s, as after task 4. Found while measuring: a tuple type
+   that holds a `TokenKind` and a `NodeKind` (145 and 77 members) in
+   an array cost ponyc seven minutes of type checking in the recovery
+   tests, from task 5; the test now keeps the kinds in an array of
+   their own, and the compile is back to 75 s.
 
 ### The ponyc-bump procedure
 
@@ -989,14 +1035,16 @@ all of the following, so that the pin is one commit throughout:
 
 1. Update the commit named at the top of this file and in
    `docs/ponyc-divergences.md`, and re-check each cited path and line.
-2. `make regen-token-kinds PONYC_SRC=<checkout>` and review the diff of
+2. `make token-agreement PONYC_SRC=<checkout> PONYC_LIB=<its lib dir>`
+   against the new ponyc on `PATH`: every stdlib file must agree.
+3. `make regen-token-kinds PONYC_SRC=<checkout>` and review the diff of
    `hefermotor/parse/token_kind.pony`. A kind added or removed changes
    the counts the token-kind tests assert; the tests still pass under a
    renamed kind, a changed fixed text, or an addition paired with a
    removal, so the reviewer of the diff must find those. `_lexer.pony`
    mirrors `lexer.c`'s scanning rules by hand, so the diff of `lexer.c`
    between the two commits is reviewed as well.
-3. Run `make test`, `make determinism` and `make differential` against
+4. Run `make test`, `make determinism` and `make differential` against
    the ponyc built from the new commit; a differential case that changes
    class moves between `KNOWN_GAP` and the ordinary cases in the same
    change, with the divergence recorded in `docs/ponyc-divergences.md`.

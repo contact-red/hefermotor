@@ -22,6 +22,11 @@ decision log.
 * `make differential` compares verdicts, package sets and group
   partitions with the `ponyc` on `PATH` over the fixtures in
   `tools/differential/cases` and every package beside that `ponyc`
+* `make token-agreement PONYC_SRC=<ponyc checkout> PONYC_LIB=<its lib
+  dir>` compares the lexer's token kinds with ponyc's lexer's over
+  every stdlib file beside the `ponyc` on `PATH`, linking
+  `tools/agreement/ponyc_dump.c` against the checkout's
+  `libponyc-standalone.a`; needs gcc
 
 ## Usage
 

@@ -12,9 +12,9 @@ primitive \nodoc\ _RecoveryTests is TestList
 primitive \nodoc\ _Tree
   """
   The tree assertions the recovery tests share: the tree reprints its
-  source, has one root, and every subtree size is the sum of its
-  children's plus one. One failure per tree at most, so that a sweep
-  over thousands of trees costs no test-runner traffic when they pass.
+  source and `TreeCheck` is empty. One failure per tree at most, so
+  that a sweep over thousands of trees costs no test-runner traffic
+  when they pass.
   """
   fun sound(h: TestHelper, tree: SyntaxTree val, src: String val,
     label: String)
@@ -24,27 +24,7 @@ primitive \nodoc\ _Tree
       return
     end
     try
-      if tree.size() != tree.subtree_size(0)? then
-        h.fail(label + ": the root does not span the tree")
-        return
-      end
-      var i: USize = 0
-      while i < tree.size() do
-        let span = tree.subtree_size(i)?
-        if span > 1 then
-          var total: USize = 1
-          for c in tree.children(i)? do
-            total = total + tree.subtree_size(c)?
-          end
-          if span != total then
-            h.fail(label + ": subtree size of element " + i.string())
-            return
-          end
-        end
-        i = i + 1
-      end
-    else
-      h.fail(label + ": an element index was out of range")
+      h.fail(label + ": " + TreeCheck(tree)(0)?.string())
     end
 
   fun depth_diagnostics(tree: SyntaxTree val): USize =>
@@ -65,12 +45,13 @@ primitive \nodoc\ _Tree
     for d in tree.diagnostics.values() do
       if d.message.contains("grammar depth limit") then at = d.offset end
     end
-    try
-      for (i, _, offset, kind, _) in tree.walk() do
-        if (kind is NdError) and (offset == at) then
-          match tree.kind(i + 1)?
+    for node in tree.nodes() do
+      if (node.kind() is NdError) and (node.offset() == at) then
+        for c in node.children() do
+          match c.kind()
           | TkRparen | TkRsquare | TkRbrace | TkEnd => return true
           end
+          break
         end
       end
     end
@@ -86,7 +67,7 @@ class \nodoc\ iso _TestUseThenUseKeepsBoth is UnitTest
     next token is one the section loop takes.
     """
     let src: String val = "use\nuse \"z\"\n"
-    let tree = _ParseModule(src)
+    let tree = _ParseText(src)
     _Tree.sound(h, tree, src, "use use")
     h.assert_eq[USize](2, _Find.count(tree, NdUse))
     h.assert_eq[USize](0, _Find.count(tree, NdError))
@@ -135,7 +116,7 @@ primitive \nodoc\ _Sweep
     while n <= 1258 do
       let src: String val = _Nested.body(recover val
         opener.mul(n) + inner + closer.mul(n) end)
-      let tree = _ParseModule(src)
+      let tree = _ParseText(src)
       let label: String val = n.string() + " " + what
       _Tree.sound(h, tree, src, label)
       let depth = _Tree.depth_diagnostics(tree)
@@ -159,23 +140,28 @@ class \nodoc\ iso _TestRefusalStopsAtTheNextItem is UnitTest
     top-level keyword, whichever it is, so the item is kept and no error
     node holds its keyword.
     """
-    for (keyword, kind, kept) in
-      [as (String, TokenKind, NodeKind):
-        ("class D", TkClass, NdClassDef); ("actor D", TkActor, NdClassDef)
-        ("primitive D", TkPrimitive, NdClassDef)
-        ("struct D", TkStruct, NdClassDef); ("trait D", TkTrait, NdClassDef)
-        ("interface D", TkInterface, NdClassDef)
-        ("type D is E", TkType, NdClassDef); ("use \"z\"", TkUse, NdUse)]
-        .values()
-    do
+    // Two arrays rather than one of tuples: a tuple type holding a
+    // token kind and a node kind takes ponyc minutes to check.
+    let items: Array[String] = [
+      "class D"; "actor D"; "primitive D"; "struct D"; "trait D"
+      "interface D"; "type D is E"; "use \"z\""]
+    let kinds: Array[TokenKind] = [
+      TkClass; TkActor; TkPrimitive; TkStruct; TkTrait; TkInterface
+      TkType; TkUse]
+    h.assert_eq[USize](items.size(), kinds.size())
+    for (i, keyword) in items.pairs() do
+      let kind = try kinds(i)? else h.fail("no kind"); return end
       let src: String val = recover val
         "class C\n  fun f() => " + "(".mul(1500) + "\n" + keyword + "\n"
       end
-      let tree = _ParseModule(src)
+      let tree = _ParseText(src)
       _Tree.sound(h, tree, src, keyword)
       h.assert_eq[USize](1, _Tree.depth_diagnostics(tree), keyword)
-      h.assert_eq[USize](if kind is TkUse then 1 else 2 end,
-        _Find.count(tree, kept), keyword)
+      if kind is TkUse then
+        h.assert_eq[USize](1, _Find.count(tree, NdUse), keyword)
+      else
+        h.assert_eq[USize](2, _Find.count(tree, NdClassDef), keyword)
+      end
       h.assert_false(_Holds(tree, NdError, kind),
         keyword + ": an error node holds the keyword")
     end
@@ -188,15 +174,16 @@ class \nodoc\ iso _TestRefusalStopsAtTheNextMethod is UnitTest
     A region refused for depth inside a method body ends at the next
     method start, whichever it is, so the method after it is kept.
     """
-    for (keyword, kind) in
-      [as (String, TokenKind):
-        ("fun g() => 1", TkFun); ("be g() => 1", TkBe)
-        ("new g() => 1", TkNew)].values()
-    do
+    // Two arrays for the same reason as in the test above.
+    let items: Array[String] = ["fun g() => 1"; "be g() => 1"; "new g() => 1"]
+    let kinds: Array[TokenKind] = [TkFun; TkBe; TkNew]
+    h.assert_eq[USize](items.size(), kinds.size())
+    for (i, keyword) in items.pairs() do
+      let kind = try kinds(i)? else h.fail("no kind"); return end
       let src: String val = recover val
         "class C\n  fun f() => " + "(".mul(1500) + "\n  " + keyword + "\n"
       end
-      let tree = _ParseModule(src)
+      let tree = _ParseText(src)
       _Tree.sound(h, tree, src, keyword)
       h.assert_eq[USize](1, _Tree.depth_diagnostics(tree), keyword)
       h.assert_eq[USize](2, _Find.count(tree, NdMethod), keyword)
@@ -210,18 +197,15 @@ primitive \nodoc\ _Holds
     Whether any node of kind `node` has a leaf of kind `leaf` anywhere
     beneath it.
     """
-    try
-      var i: USize = 0
-      while i < tree.size() do
-        if tree.kind(i)? is node then
-          var j = i + 1
-          let stop = i + tree.subtree_size(i)?
-          while j < stop do
-            if tree.kind(j)? is leaf then return true end
-            j = j + 1
+    for n in tree.nodes() do
+      if n.kind() is node then
+        let stop = n._index() + n._size()
+        for m in tree.nodes() do
+          if m._index() >= stop then break end
+          if (m._index() > n._index()) and (m.kind() is leaf) then
+            return true
           end
         end
-        i = i + 1
       end
     end
     false
@@ -241,19 +225,19 @@ class \nodoc\ iso _TestEveryShapeSurvivesTheLimit is UnitTest
     set moved. No chain is refused, since a chain does not descend.
     """
     for (label, src, refusals) in _Shapes(3000).values() do
-      let tree = _ParseModule(src)
+      let tree = _ParseText(src)
       _Tree.sound(h, tree, src, label)
       h.assert_eq[USize](refusals, _Tree.depth_diagnostics(tree),
         label + ": depth refusals")
     end
     for (label, src) in _Shapes.chains(3000).values() do
-      let tree = _ParseModule(src)
+      let tree = _ParseText(src)
       _Tree.sound(h, tree, src, label)
       h.assert_eq[USize](0, _Tree.depth_diagnostics(tree),
         label + ": a chain was refused for depth")
     end
     for (label, src) in _Shapes.floods(30_000).values() do
-      let tree = _ParseModule(src)
+      let tree = _ParseText(src)
       _Tree.sound(h, tree, src, label)
     end
 

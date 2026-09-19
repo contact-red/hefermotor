@@ -1,3 +1,5 @@
+use source = "../source"
+
 primitive _MaxNesting
   """
   The deepest grammar recursion the parser will enter.
@@ -17,17 +19,16 @@ class _Chain
   """
   let index: USize
   let from: USize
-  embed wraps: Array[(SyntaxKind, U32, U32)] =
-    Array[(SyntaxKind, U32, U32)]
+  embed wraps: Array[SyntaxElement] = Array[SyntaxElement]
 
   new create(index': USize, from': USize) =>
     index = index'
     from = from'
 
-  fun ref record(k: NodeKind, width: U32, size: USize) =>
+  fun ref record(k: NodeKind, size: USize) =>
     // The subtree covers the wrappers recorded before this one plus
     // itself, on top of the elements parsed since the mark.
-    wraps.push((k, width, ((size - index) + wraps.size() + 1).u32()))
+    wraps.push((k, from.u32(), ((size - index) + wraps.size() + 1).u32()))
 
 class _Parser
   """
@@ -45,10 +46,9 @@ class _Parser
   between two items belong to what contains them rather than to whichever
   item happens to follow.
   """
-  let _source: String val
+  let _file: source.SourceFile
   embed _stream: _TokenStream
-  var _elems: Array[(SyntaxKind, U32, U32)] iso =
-    recover Array[(SyntaxKind, U32, U32)] end
+  var _elems: Array[SyntaxElement] iso = recover Array[SyntaxElement] end
     """
     Isolated rather than embedded so that `build` can hand it over with a
     destructive read instead of copying it. Every element is sendable -- a
@@ -57,7 +57,7 @@ class _Parser
     """
   var _diagnostics: Array[SyntaxDiagnostic val] iso =
     recover Array[SyntaxDiagnostic val] end
-  embed _open: Array[(USize, USize)] = Array[(USize, USize)]
+  embed _open: Array[USize] = Array[USize]
   var _index: USize = 0
     """
     Index into the token stream, of the next unconsumed token.
@@ -75,9 +75,9 @@ class _Parser
     they descend, and the machine stack grows regardless.
     """
 
-  new create(source': String val) =>
-    _source = source'
-    _stream = _TokenStream(source')
+  new create(file: source.SourceFile) =>
+    _file = file
+    _stream = _TokenStream(file.content)
 
   fun tag _is_trivia(k: TokenKind): Bool =>
     match k
@@ -156,7 +156,7 @@ class _Parser
     current() is TkEof
 
   fun ref _emit(k: SyntaxKind, w: USize) =>
-    _elems.push((k, w.u32(), 1))
+    _elems.push((k, _offset.u32(), 1))
     _offset = _offset + w
 
   fun ref flush_trivia() =>
@@ -192,19 +192,20 @@ class _Parser
     if _open.size() > 0 then
       flush_trivia()
     end
-    _open.push((_elems.size(), _offset))
-    _elems.push((k, 0, 0))
+    _open.push(_elems.size())
+    _elems.push((k, _offset.u32(), 0))
 
   fun ref finish() =>
     """
-    Close the innermost open node, filling in the width and subtree size it
-    turned out to have.
+    Close the innermost open node, filling in the subtree size it turned
+    out to have.
     """
     try
-      (let index, let from) = _open.pop()?
-      (let k, _, _) = _elems(index)?
-      _elems(index)? =
-        (k, (_offset - from).u32(), (_elems.size() - index).u32())
+      let index = _open.pop()?
+      (let k, let offset, _) = _elems(index)?
+      _elems(index)? = (k, offset, (_elems.size() - index).u32())
+    else
+      _Unreachable()
     end
 
   fun pos(): USize =>
@@ -248,8 +249,9 @@ class _Parser
     (let index, let from) = mark
     try
       _elems.insert(
-        index,
-        (k, (_offset - from).u32(), ((_elems.size() - index) + 1).u32()))?
+        index, (k, from.u32(), ((_elems.size() - index) + 1).u32()))?
+    else
+      _Unreachable()
     end
 
   fun ref chain(): _Chain =>
@@ -269,7 +271,7 @@ class _Parser
     Record a wrapper of kind `k` around everything parsed since the
     chain's mark, to be laid down by `close_chain`.
     """
-    c.record(k, (_offset - c.from).u32(), _elems.size())
+    c.record(k, _elems.size())
 
   fun ref close_chain(c: _Chain) =>
     """
@@ -301,6 +303,8 @@ class _Parser
         _elems(c.index + w)? = c.wraps(k - 1 - w)?
         w = w + 1
       end
+    else
+      _Unreachable()
     end
 
   fun ref bump() =>
@@ -395,8 +399,9 @@ class _Parser
     while _open.size() > 0 do
       finish()
     end
-    let elems: Array[(SyntaxKind, U32, U32)] val =
-      _elems = recover Array[(SyntaxKind, U32, U32)] end
+    _elems.compact()
+    let elems: Array[SyntaxElement] val =
+      _elems = recover Array[SyntaxElement] end
     let diags: Array[SyntaxDiagnostic val] val =
       _diagnostics = recover Array[SyntaxDiagnostic val] end
-    SyntaxTree(_source, elems, diags)
+    SyntaxTree._create(_file, elems, diags)
