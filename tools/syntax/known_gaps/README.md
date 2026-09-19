@@ -1,0 +1,5 @@
+# Known gaps of the AST comparison
+
+`tools/syntax/agree.py` compares every module's items and types with ponyc's parse-pass AST under `make corpus`. A module that differs by design is listed here as `<package>__<file>.pony.diff`, where `<package>` is the package directory's path under the packages directory beside `ponyc`, or under the checkout's `test/full-program-tests/`, with `/` as `__` (`collections__persistent__benchmarks__main.pony.diff`).
+
+The file holds the whole diff `agree.py` prints for the module after its `DIFFER` line, so that the module must differ exactly so: a different diff is a `DIFFER`, a module that comes to agree fails as `known gap closed`, which is when its file is removed, and a file naming no compared module fails as stale. Each file's divergence has an entry in `docs/ponyc-divergences.md` that names the file; `tools/syntax/run.sh` fails a file with none. `tools/syntax/agree_check.sh` exercises the protocol over the shape fixture under `make test`; the entry check runs only over the files here.

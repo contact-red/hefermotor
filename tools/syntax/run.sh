@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 # The corpus run: the parser over every file of the packages beside the
 # ponyc on PATH and every single-edit mutant of each, a sample of those
-# mutants against ponyc's verdict, and the numbers the design records.
+# mutants against ponyc's verdict, every module's items and types
+# against ponyc's AST, and the numbers the design records.
 #
 # Usage: tools/syntax/run.sh <syntax binary> <hefermotor binary>
 #
-# Four steps, each failing the run on its own.
+# Five steps, each failing the run on its own.
 #
 # 1. `syntax --check` over the packages directory, and with PONYC_SRC
 #    set, over that checkout's `examples/`, `test/full-program-tests/`
@@ -22,10 +23,16 @@
 #    must agree with `ponyc --pass=parse`, and at least one mutant must
 #    be rejected, since a sample no edit reached agrees trivially; the
 #    two position rates are on its summary line.
-# 3. The token digests of the packages, regenerated and compared with
+# 3. `agree.py` over every package under the packages directory, and
+#    with PONYC_SRC set over every package under the checkout's
+#    `test/full-program-tests/`: every module's items and types must
+#    match ponyc's parse-pass AST, or be listed under
+#    `tools/syntax/known_gaps/` with exactly its diff; and every gap
+#    file must be named in `docs/ponyc-divergences.md`.
+# 4. The token digests of the packages, regenerated and compared with
 #    `tools/syntax/token_digest/`; a difference means the lexer's kinds
 #    over the stdlib changed, or the stdlib did.
-# 4. `hefermotor check stdlib` from an empty directory, timed.
+# 5. `hefermotor check stdlib` from an empty directory, timed.
 #
 # Each step's tool invocations run under DIFFERENTIAL_TIMEOUT seconds
 # (default 600): the digest step as a whole, the others per invocation.
@@ -103,7 +110,33 @@ else
   fail "syntax --mutants exited $?"
 fi
 
-# --- 3. the token digests -----------------------------------------------
+# --- 3. the items and types against ponyc's AST -------------------------
+
+oracle_dirs=("$packages")
+if [ -n "${PONYC_SRC:-}" ]; then
+  oracle_dirs+=("$PONYC_SRC/test/full-program-tests")
+fi
+mapfile -t oracle_packages < <(find "${oracle_dirs[@]}" -name '*.pony' \
+  -exec dirname {} \; | LC_ALL=C sort -u)
+roots=()
+for d in "${oracle_dirs[@]}"; do roots+=(--root "$d"); done
+timeout "$timeout_s" "$here/agree.py" --known-gaps "$here/known_gaps" \
+  "${roots[@]}" "$syntax" "${oracle_packages[@]}"
+code=$?
+if [ "$code" = 1 ]; then
+  fail "the items and types differ from ponyc's AST"
+elif [ "$code" != 0 ]; then
+  fail "agree.py could not compare (exit $code)"
+fi
+for gap in "$here"/known_gaps/*.diff; do
+  [ -e "$gap" ] || continue
+  if ! grep -q -F "$(basename "$gap")" "$here/../../docs/ponyc-divergences.md"
+  then
+    fail "$(basename "$gap") has no entry in docs/ponyc-divergences.md"
+  fi
+done
+
+# --- 4. the token digests -----------------------------------------------
 
 timeout "$timeout_s" "$here/token_digest.sh" "$syntax" "$packages" \
   "$tmp/digest"
@@ -117,7 +150,7 @@ else
   fail "token digests differ from tools/syntax/token_digest"
 fi
 
-# --- 4. the command over the stdlib, timed ------------------------------
+# --- 5. the command over the stdlib, timed ------------------------------
 
 mkdir -p "$tmp/cwd"
 { TIMEFORMAT='%R %U %S'; time (cd "$tmp/cwd" && \

@@ -88,9 +88,12 @@ build/%/syntax: $(SOURCE_FILES) $(SYNTAX_SOURCE_FILES) | build/%
 	$(COMPILE_WITH) $(if $(filter release,$*),,--debug) \
 	  -o build/$* -b syntax tools/syntax
 
-# Each fixture's `--tree` output against the expected output beside it,
-# and every fifth mutant of the fixtures, in their sorted order, against
-# the committed sample under `fixtures/mutants/`.
+# Each fixture's `--tree` output against the expected output beside it;
+# every fifth mutant of the fixtures, in their sorted order, against the
+# committed sample under `fixtures/mutants/`; the `--shape` projection
+# of the two fixture packages against the raw ponyc output stored
+# beside each, through `agree.py`; and `agree.py`'s known-gaps protocol
+# over the shape fixture.
 syntax-fixtures: $(BUILD_DIR)/syntax
 	test -n "$(syntax_fixtures)"
 	for f in $(syntax_fixtures); do \
@@ -101,12 +104,19 @@ syntax-fixtures: $(BUILD_DIR)/syntax
 	$(BUILD_DIR)/syntax --mutants $(syntax_fixtures) \
 	  --emit $(BUILD_DIR)/mutants --every 5
 	diff -r tools/syntax/fixtures/mutants $(BUILD_DIR)/mutants
+	for d in shape order; do \
+	  tools/syntax/agree.py --expected tools/syntax/fixtures/$$d/expected.ast \
+	    $(BUILD_DIR)/syntax tools/syntax/fixtures/$$d || exit 1; \
+	done
+	tools/syntax/agree_check.sh $(BUILD_DIR)/syntax
 
 # The parser over every stdlib file and every mutant of each, a sample
-# of the mutants against ponyc's verdict, the token digests, and the
+# of the mutants against ponyc's verdict, the items and types of every
+# stdlib module against ponyc's AST, the token digests, and the
 # timings; with PONYC_SRC set, the checkout's examples, full-program
-# tests and tools as well. Release builds, since the numbers are
-# recorded.
+# tests and tools go through the parser too, and the full-program
+# tests through the AST comparison. Release builds, since the numbers
+# are recorded.
 corpus: $(syntax_binary) build/release/hefermotor
 	tools/syntax/run.sh $(syntax_binary) build/release/hefermotor
 

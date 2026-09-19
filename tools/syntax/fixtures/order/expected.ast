@@ -1,0 +1,6 @@
+(package:scope
+  module:scope
+  (module:scope (primitive:scope (id C) x x x members x x))
+  (module:scope (primitive:scope (id B) x x x members x x))
+  (module:scope (primitive:scope (id A) x x x members x x))
+)

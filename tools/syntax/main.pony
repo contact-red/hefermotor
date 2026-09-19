@@ -28,6 +28,11 @@ lines: the counts with the mutation parameters, and the distribution
 of diagnostic counts over the mutants; exits 1 when any tree broke an
 invariant, the two readers disagreed, or a file could not be read.
 
+`syntax --shape <path>...` prints, per file, its items and types in the
+shape `ponyc --pass=parse --astpackage` prints a module in, after a
+sentinel line `;; <file name>`; `tools/syntax/agree.py` normalises
+both and compares them.
+
 `syntax --mutants <path>... [--emit <dir> --every N]` counts the
 mutants of every file and, with `--emit`, writes every Nth of them, in
 file order, as `<dir>/sample-<file>-<k>/main/<name>.pony`, where
@@ -42,16 +47,18 @@ use source = "../../hefermotor/source"
 
 primitive _Tokens
 primitive _Tree
+primitive _Shape
 primitive _Check
 primitive _Mutants
 
-type _Mode is (_Tokens | _Tree | _Check | _Mutants)
+type _Mode is (_Tokens | _Tree | _Shape | _Check | _Mutants)
 
 primitive _ModeFlag
   fun apply(arg: String): (_Mode | None) =>
     match arg
     | "--tokens" => _Tokens
     | "--tree" => _Tree
+    | "--shape" => _Shape
     | "--check" => _Check
     | "--mutants" => _Mutants
     else
@@ -72,10 +79,10 @@ class val _Input
 
 actor Main
   """
-  Reads the files one behaviour at a time, so that under `--tokens` and
-  `--tree` the trees of each file are collected before the next file is
-  read, and collects the reports of the `--check` actors, printing them
-  in file order.
+  Reads the files one behaviour at a time, so that under `--tokens`,
+  `--tree` and `--shape` the trees of each file are collected before
+  the next file is read, and collects the reports of the `--check`
+  actors, printing them in file order.
   """
   let _env: Env
   let _auth: FileAuth
@@ -146,6 +153,7 @@ actor Main
         env.err.print(
           "usage: syntax --tokens <path>...\n" +
           "       syntax --tree <path>...\n" +
+          "       syntax --shape <path>...\n" +
           "       syntax --check <path>...\n" +
           "       syntax --mutants <path>... [--emit <dir> --every N]")
       end
@@ -169,6 +177,7 @@ actor Main
       match _mode
       | _Tokens => _tokens(input.path, content)
       | _Tree => _tree(input.path, content)
+      | _Shape => _shape(input.path, content)
       | _Check => _Checker(i, input.path, content, this)
       | _Mutants => _mutants(i, input, content)
       end
@@ -216,6 +225,10 @@ actor Main
   fun _tree(path: String, content: String val) =>
     let file = source.SourceFile(Path.dir(path), Path.base(path), content)
     _env.out.write(_TreeText(path, parse.Parse(file)))
+
+  fun _shape(path: String, content: String val) =>
+    let file = source.SourceFile(Path.dir(path), Path.base(path), content)
+    _env.out.write(_PonycShape(parse.Parse.tree(file)))
 
   fun ref _mutants(i: USize, input: _Input, content: String val) =>
     _totals.files = _totals.files + 1
