@@ -117,11 +117,6 @@ primitive \nodoc\ _Fixture
     mem.file("/pkgs/builtin/builtin.pony", "primitive None\n")
     mem
 
-primitive \nodoc\ _NoParse
-  fun apply(file: source.SourceFile): parse.ParsedFile =>
-    parse.ParsedFile(file, recover val Array[parse.UseDecl] end,
-      recover val Array[diag.Diagnostic] end)
-
 primitive \nodoc\ _StubAnalysis
   fun apply(
     members: Array[discover.ParsedPackage] val,
@@ -144,7 +139,7 @@ primitive \nodoc\ _StubChecker
   fun apply(program: discover.Program, config: source.BuildConfig)
     : Promise[schedule.Report]
   =>
-    schedule.Schedule(program, config, _NoParse, _StubAnalysis)
+    schedule.Schedule(program, config, parse.Parse, _StubAnalysis)
 
 primitive \nodoc\ _EnoughStack
   """

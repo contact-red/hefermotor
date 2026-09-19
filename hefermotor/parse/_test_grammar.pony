@@ -202,7 +202,8 @@ class \nodoc\ iso _TestBumpAtTheEnd is UnitTest
   fun name(): String => "parse/grammar: bump at the end emits TkEof once"
 
   fun apply(h: TestHelper) =>
-    let p = _Parser(source.SourceFile("/t", "t.pony", "x "))
+    let file = source.SourceFile("/t", "t.pony", "x ")
+    let p = _Parser(file, _TokenStream(file.content))
     p.start(NdModule)
     p.bump()
     p.bump()

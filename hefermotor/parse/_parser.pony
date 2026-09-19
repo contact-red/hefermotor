@@ -55,7 +55,7 @@ class _Parser
   item happens to follow.
   """
   let _file: source.SourceFile
-  embed _stream: _TokenStream
+  let _stream: _TokenStream ref
   var _elems: Array[SyntaxElement] iso = recover Array[SyntaxElement] end
     """
     Isolated rather than embedded so that `build` can hand it over with a
@@ -95,9 +95,13 @@ class _Parser
     _TokenSets.case_pattern_start()
   let _type_start: Array[TokenKind] val = _TokenSets.type_start()
 
-  new create(file: source.SourceFile) =>
+  new create(file: source.SourceFile, stream: _TokenStream ref) =>
+    """
+    A parser over `stream`, which must be the tokens of `file`'s
+    content and is scanned only as far as the grammar reads.
+    """
     _file = file
-    _stream = _TokenStream(file.content)
+    _stream = stream
     _records = _Records(file)
 
   fun tag _is_trivia(k: TokenKind): Bool =>
@@ -257,15 +261,59 @@ class _Parser
   fun ref finish() =>
     """
     Close the innermost open node, filling in the subtree size it turned
-    out to have.
+    out to have. A node ends at its last real token as it begins at its
+    first: trivia a child rule flushed before consuming nothing go to
+    the enclosing node, as siblings after this one, when there is an
+    enclosing node; and a node that consumed nothing, opened after
+    such trivia, moves before them, at their offset, so that the
+    enclosing node can end at its last real token too.
     """
     try
       let index = _open.pop()?
       (let k, let offset, _) = _elems(index)?
-      _elems(index)? = (k, offset, (_elems.size() - index).u32())
+      if _open.size() == 0 then
+        _elems(index)? = (k, offset, (_elems.size() - index).u32())
+        return
+      end
+      let last = _before_trailing_trivia(index + 1)
+      if (last - index) == 1 then
+        var first = index
+        while (first > 0) and _is_trivia_element(first - 1) do
+          first = first - 1
+        end
+        if first < index then
+          let trivia_offset = _elems(first)?._2
+          var j = index
+          while j > first do
+            _elems(j)? = _elems(j - 1)?
+            j = j - 1
+          end
+          _elems(first)? = (k, trivia_offset, 1)
+          return
+        end
+      end
+      _elems(index)? = (k, offset, (last - index).u32())
     else
       _Unreachable()
     end
+
+  fun ref _is_trivia_element(i: USize): Bool =>
+    match (try _elems(i)?._1 else _Unreachable(); NdError end)
+    | TkWhitespace | TkLineComment | TkNestedComment => true
+    else
+      false
+    end
+
+  fun ref _before_trailing_trivia(from: USize): USize =>
+    """
+    The index just past the last element at or after `from` that is not
+    a trivia leaf; `from` when every element there is one.
+    """
+    var past = _elems.size()
+    while (past > from) and _is_trivia_element(past - 1) do
+      past = past - 1
+    end
+    past
 
   fun pos(): USize =>
     """
@@ -292,7 +340,8 @@ class _Parser
 
   fun ref wrap_from(mark: (USize, USize), k: NodeKind) =>
     """
-    Put a node of kind `k` around every element added since `mark`.
+    Put a node of kind `k` around every element added since `mark`,
+    trailing trivia left outside as `finish` leaves them.
 
     An infix construct is not known to be one until its operator appears --
     `A` is a type and `A | B` is a union -- and a source-ordered tree cannot
@@ -306,9 +355,9 @@ class _Parser
     once per operator of an unbounded chain uses `chain` instead.
     """
     (let index, let from) = mark
+    let past = _before_trailing_trivia(index)
     try
-      _elems.insert(
-        index, (k, from.u32(), ((_elems.size() - index) + 1).u32()))?
+      _elems.insert(index, (k, from.u32(), ((past - index) + 1).u32()))?
     else
       _Unreachable()
     end
@@ -328,9 +377,10 @@ class _Parser
   fun ref chain_wrap(c: _Chain, k: NodeKind) =>
     """
     Record a wrapper of kind `k` around everything parsed since the
-    chain's mark, to be laid down by `close_chain`.
+    chain's mark, trailing trivia left outside, to be laid down by
+    `close_chain`.
     """
-    c.record(k, _elems.size())
+    c.record(k, _before_trailing_trivia(c.index))
 
   fun ref close_chain(c: _Chain) =>
     """
@@ -481,6 +531,18 @@ class _Parser
       bump()
     end
     finish()
+
+  fun ref stop() =>
+    """
+    End the tree here, before the token the cursor is at: flush the
+    pending trivia, then emit a `TkEof` at the stop offset, so that
+    the leaves before it tile the prefix exactly. The `TkEof`'s own
+    derived width runs to the file's end, so the tree is not one
+    `SyntaxTree`'s docstring describes: it reads as the prefix only
+    through the nodes before the `TkEof`.
+    """
+    flush_trivia()
+    _elems.push((TkEof, _offset.u32(), 1))
 
   fun ref build(): (SyntaxTree val, Array[diag.Diagnostic] val) =>
     """
