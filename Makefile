@@ -97,6 +97,19 @@ token-agreement: check-ponyc-vars $(syntax_binary) $(ponyc_dump)
 	find "$(stdlib_dir)" -name '*.pony' | sort | \
 	  xargs tools/agreement/check.py $(syntax_binary) $(ponyc_dump)
 
+# One digest per stdlib package of its non-trivia token kinds, in
+# `tools/syntax/token_digest/`, committed so that re-running the target
+# after a lexer change diffs; regenerated in the ponyc-bump procedure.
+token-digest: $(syntax_binary)
+	rm -rf tools/syntax/token_digest && mkdir -p tools/syntax/token_digest
+	for dir in $$(find "$(stdlib_dir)" -name '*.pony' -exec dirname {} \; \
+	    | LC_ALL=C sort -u); do \
+	  pkg=$$(echo "$${dir#$(stdlib_dir)/}" | tr / _); \
+	  find "$$dir" -maxdepth 1 -name '*.pony' | LC_ALL=C sort \
+	    | xargs $(syntax_binary) --tokens | sed 's|^### .*/|### |' \
+	    | sha256sum | cut -d' ' -f1 > tools/syntax/token_digest/$$pkg; \
+	done
+
 check-ponyc-vars:
 	test -n "$(PONYC_SRC)" -a -n "$(PONYC_LIB)" || \
 	  { echo "set PONYC_SRC=<ponyc checkout> PONYC_LIB=<its lib dir>"; \
@@ -160,5 +173,5 @@ build/debug build/release:
 
 .PHONY: all cli clean determinism differential docs lint-source \
   check-ponyc-vars regen-token-kinds syntax TAGS test test-stack \
-  token-agreement \
+  token-agreement token-digest \
   unit-tests

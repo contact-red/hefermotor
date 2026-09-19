@@ -297,8 +297,9 @@ class \nodoc\ iso _TestUnterminatedBeside is UnitTest
     unterminated. `fun f(` is not a `TERMINATE` site, so its `)` is an
     expectation, at the `(` since the file ends. A lexer refusal inside
     an open construct, or in place of its closer, excuses nothing at
-    the opener. An opener that is the last token shares its start with
-    the expectation inside it, and sorts after it by width.
+    the opener, and is reported by the lexer beside it. An opener that
+    is the last token shares its start with the expectation inside it,
+    and sorts after it by width.
     """
     _Exactly(h, _Nested.body("foo("), [
       ("parse/unterminated", 44, "syntax error: unterminated call arguments")
@@ -321,12 +322,15 @@ class \nodoc\ iso _TestUnterminatedBeside is UnitTest
     ], "closed if")
     _Exactly(h, _Nested.body("foo(1 \""), [
       ("parse/unterminated", 44, "syntax error: unterminated call arguments")
+      ("parse/lex", 47, "Literal doesn't terminate")
     ], "lexer refusal inside")
     _Exactly(h, _Nested.body("x.foo[U8 \""), [
       ("parse/unterminated", 46, "syntax error: unterminated type arguments")
+      ("parse/lex", 50, "Literal doesn't terminate")
     ], "lexer refusal at the closer")
     _Exactly(h, "class C[A: Any \"\n", [
       ("parse/unterminated", 7, "syntax error: unterminated type parameters")
+      ("parse/lex", 15, "Literal doesn't terminate")
     ], "lexer refusal at a type parameter list's closer")
     _Exactly(h, _Nested.body("x.foo["), [
       ("parse/expected", 46, "syntax error: expected type argument, found " +
@@ -400,18 +404,19 @@ class \nodoc\ iso _TestSequenceStopsAfterJump is UnitTest
       "syntax error: expected field or method, found ;", "after a jump")
 
 class \nodoc\ iso _TestLexErrorRecordsNothing is UnitTest
-  fun name(): String => "parse/diagnostics: a lex error records nothing"
+  fun name(): String =>
+    "parse/diagnostics: a lex error is the lexer's record alone"
 
   fun apply(h: TestHelper) =>
     """
     A rule failing on a token the lexer refused records nothing: the
-    refusal is the lexer's to report. The tree still wraps the token.
+    refusal is the lexer's record, the file's only one. The tree still
+    wraps the token.
     """
     let src: String val = "class C\n  fun f() => $\n"
-    h.assert_eq[USize](0, _Diagnostics(src).size())
-    let tree = _ParseText(src)
-    h.assert_eq[USize](1, _Find.count(tree, NdError))
-    for v in _Check(src).values() do h.fail(v.string()) end
+    _Exactly(h, src, [("parse/lex", 21, "Unrecognized character: $")],
+      "refused token")
+    h.assert_eq[USize](1, _Find.count(_ParseText(src), NdError))
 
 class \nodoc\ iso _TestNestingRecord is UnitTest
   fun name(): String => "parse/diagnostics: the nesting record"

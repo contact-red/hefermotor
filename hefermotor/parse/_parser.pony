@@ -201,6 +201,20 @@ class _Parser
     at_any(_type_start)
 
   fun ref _emit(k: SyntaxKind, w: USize) =>
+    """
+    Push the token as a leaf, and record the lexer's refusals of it,
+    which the stream lists by token index in cursor order.
+    """
+    while true do
+      match _stream.next_failure()
+      | (let index: USize, let failure: LexFailure, let from: USize,
+        let length: USize) if index == _index =>
+        _records.record(LexError(failure), from, length)
+        _stream.take_failure()
+      else
+        break
+      end
+    end
     _elems.push((k, _offset.u32(), 1))
     _offset = _offset + w
 

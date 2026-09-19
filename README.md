@@ -29,6 +29,8 @@ decision log.
   every stdlib file beside the `ponyc` on `PATH`, linking
   `tools/agreement/ponyc_dump.c` against the checkout's
   `libponyc-standalone.a`; needs gcc
+* `make token-digest` writes one digest per stdlib package of its token
+  kinds to `tools/syntax/token_digest/`
 
 ## Usage
 
