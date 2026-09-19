@@ -24,17 +24,20 @@ primitive \nodoc\ _Tree
       return
     end
     try
-      h.fail(label + ": " + TreeCheck(tree)(0)?.string())
+      h.fail(label + ": " + TreeCheck(tree, _Diagnostics(src))(0)?.string())
     end
 
-  fun depth_diagnostics(tree: SyntaxTree val): USize =>
+  fun depth_diagnostics(src: String val): USize =>
     var n: USize = 0
-    for d in tree.diagnostics.values() do
-      if d.message.contains("grammar depth limit") then n = n + 1 end
+    for d in _Diagnostics(src).values() do
+      match d.cause | let _: NestingTooDeep => n = n + 1 end
     end
     n
 
-  fun refused_region_starts_with_closer(tree: SyntaxTree val): Bool =>
+  fun refused_region_starts_with_closer(tree: SyntaxTree val,
+    src: String val)
+    : Bool
+  =>
     """
     Whether the `NdError` at the depth diagnostic's offset begins with
     a closing token. A refused region ends before a closer and never
@@ -42,8 +45,8 @@ primitive \nodoc\ _Tree
     opens none.
     """
     var at: USize = 0
-    for d in tree.diagnostics.values() do
-      if d.message.contains("grammar depth limit") then at = d.offset end
+    for d in _Diagnostics(src).values() do
+      match d.cause | let _: NestingTooDeep => at = _Start(d) end
     end
     for node in tree.nodes() do
       if (node.kind() is NdError) and (node.offset() == at) then
@@ -71,9 +74,10 @@ class \nodoc\ iso _TestUseThenUseKeepsBoth is UnitTest
     _Tree.sound(h, tree, src, "use use")
     h.assert_eq[USize](2, _Find.count(tree, NdUse))
     h.assert_eq[USize](0, _Find.count(tree, NdError))
-    h.assert_eq[USize](1, tree.diagnostics.size())
+    let diagnostics = _Diagnostics(src)
+    h.assert_eq[USize](1, diagnostics.size())
     try
-      h.assert_eq[USize](4, tree.diagnostics(0)?.offset)
+      h.assert_eq[USize](4, _Start(diagnostics(0)?))
     else
       h.fail("no diagnostic")
     end
@@ -119,12 +123,12 @@ primitive \nodoc\ _Sweep
       let tree = _ParseText(src)
       let label: String val = n.string() + " " + what
       _Tree.sound(h, tree, src, label)
-      let depth = _Tree.depth_diagnostics(tree)
+      let depth = _Tree.depth_diagnostics(src)
       h.assert_true(depth <= 1, label + ": " + depth.string() +
         " depth diagnostics")
       if depth == 1 then
         refused = refused + 1
-        h.assert_false(_Tree.refused_region_starts_with_closer(tree),
+        h.assert_false(_Tree.refused_region_starts_with_closer(tree, src),
           label + ": the refused region begins with a closer")
       end
       n = n + 1
@@ -156,7 +160,7 @@ class \nodoc\ iso _TestRefusalStopsAtTheNextItem is UnitTest
       end
       let tree = _ParseText(src)
       _Tree.sound(h, tree, src, keyword)
-      h.assert_eq[USize](1, _Tree.depth_diagnostics(tree), keyword)
+      h.assert_eq[USize](1, _Tree.depth_diagnostics(src), keyword)
       if kind is TkUse then
         h.assert_eq[USize](1, _Find.count(tree, NdUse), keyword)
       else
@@ -185,7 +189,7 @@ class \nodoc\ iso _TestRefusalStopsAtTheNextMethod is UnitTest
       end
       let tree = _ParseText(src)
       _Tree.sound(h, tree, src, keyword)
-      h.assert_eq[USize](1, _Tree.depth_diagnostics(tree), keyword)
+      h.assert_eq[USize](1, _Tree.depth_diagnostics(src), keyword)
       h.assert_eq[USize](2, _Find.count(tree, NdMethod), keyword)
       h.assert_false(_Holds(tree, NdError, kind),
         keyword + ": an error node holds the keyword")
@@ -227,13 +231,13 @@ class \nodoc\ iso _TestEveryShapeSurvivesTheLimit is UnitTest
     for (label, src, refusals) in _Shapes(3000).values() do
       let tree = _ParseText(src)
       _Tree.sound(h, tree, src, label)
-      h.assert_eq[USize](refusals, _Tree.depth_diagnostics(tree),
+      h.assert_eq[USize](refusals, _Tree.depth_diagnostics(src),
         label + ": depth refusals")
     end
     for (label, src) in _Shapes.chains(3000).values() do
       let tree = _ParseText(src)
       _Tree.sound(h, tree, src, label)
-      h.assert_eq[USize](0, _Tree.depth_diagnostics(tree),
+      h.assert_eq[USize](0, _Tree.depth_diagnostics(src),
         label + ": a chain was refused for depth")
     end
     for (label, src) in _Shapes.floods(30_000).values() do
@@ -257,7 +261,7 @@ primitive \nodoc\ _Shapes
         ("lambda", "{() => ", 1); ("bare lambda", "@{() => ", 1)
         ("lambda default", "{(x: A = ", 2)
         ("lambda capture", "{()(x = ", 1752)
-        ("lambda type param", "{[A: ", 2)
+        ("lambda type param", "{[A: ", 1)
         ("if", "if ", 2); ("ifdef", "ifdef ", 3); ("iftype", "iftype ", 3)
         ("while", "while ", 2); ("repeat", "repeat ", 2)
         ("for", "for x in ", 3); ("for tuple", "for (", 3)
@@ -270,14 +274,14 @@ primitive \nodoc\ _Shapes
         ("assign", "x = ", 1); ("return", "return ", 1)
         ("call", "f(", 1); ("named call", "f(where a = ", 1)
         ("ffi call", "@f(", 1); ("constant", "F[#", 1)
-        ("array", "[as A: ", 2)].values()
+        ("array", "[as A: ", 1)].values()
     do
       out.push((label, _body(opener.mul(depth)), refusals))
     end
     for (label, opener, refusals) in
       [as (String, String, USize):
         ("type args", "A[", 1); ("tuple type", "(A, ", 1)
-        ("lambda type", "{(", 1); ("lambda type param default", "{[A = ", 2)
+        ("lambda type", "{(", 1); ("lambda type param default", "{[A = ", 1)
         ("viewpoint", "A->", 1); ("union", "(A | ", 1)].values()
     do
       out.push((label, _alias(opener.mul(depth)), refusals))

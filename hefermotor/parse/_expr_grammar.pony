@@ -13,26 +13,30 @@
 primitive _RawSeq
   """
   ponyc's `rawseq`: one or more expressions, separated by semicolons or by
-  nothing at all.
+  nothing at all. `what` is the site's noun, which a missing first
+  expression is reported as; after a `;` the noun is ponyc's "value".
   """
-  fun apply(p: _Parser ref) =>
+  fun apply(p: _Parser ref, what: String val) =>
     if p.too_deep("expression") then
       return
     end
     p.start(NdSeq)
-    _Statement(p, _ExprNormal)
-    while not _SeqEnd(p.current()) do
+    // ponyc's sequence stops after a jump; what follows one is the
+    // enclosing rule's to take.
+    var jumped = _Statement(p, _ExprNormal, what)
+    while (not jumped) and (not _SeqEnd(p.current())) do
       let before = p.pos()
       if p.at(TkSemi) then
         p.bump()
         if _SeqEnd(p.current()) then
+          p.expected("value")
           break
         end
-        _Statement(p, _ExprNormal)
+        jumped = _Statement(p, _ExprNormal, "value")
       else
         // No semicolon, so this begins a statement, and only the newline
         // forms of `(`, `[` and `-` may open one.
-        _Statement(p, _ExprStatement)
+        jumped = _Statement(p, _ExprStatement, "value")
       end
       if p.pos() == before then
         // The token here starts no expression and ends no sequence, so
@@ -71,13 +75,16 @@ primitive _SeqEnd
 
 primitive _Statement
   """
-  ponyc's `assignment` or `jump`, whichever the next token begins.
+  ponyc's `assignment` or `jump`, whichever the next token begins;
+  returns whether it was a jump.
   """
-  fun apply(p: _Parser ref, mode: _ExprMode) =>
+  fun apply(p: _Parser ref, mode: _ExprMode, what: String val): Bool =>
     if _IsJump(p.current()) then
       _Jump(p)
+      true
     else
-      _Assignment(p, mode)
+      _Assignment(p, mode, what)
+      false
     end
 
 primitive _IsJump
@@ -96,8 +103,10 @@ primitive _Jump
   fun apply(p: _Parser ref) =>
     p.start(NdJump)
     p.bump()
-    if not _SeqEnd(p.current()) then
-      _RawSeq(p)
+    // ponyc's `OPT RULE("return value", rawseq)`: entered only where an
+    // expression can start.
+    if p.at_expr_start() then
+      _RawSeq(p, "return value")
     end
     p.finish()
 
@@ -105,9 +114,9 @@ primitive _Assignment
   """
   ponyc's `assignment`: an infix expression, optionally assigned to.
   """
-  fun apply(p: _Parser ref, mode: _ExprMode) =>
+  fun apply(p: _Parser ref, mode: _ExprMode, what: String val) =>
     let mark = p.checkpoint()
-    _Infix(p, mode)
+    _Infix(p, mode, what)
     if p.at(TkAssign) then
       // The recursion on the right of `=` runs after _Infix has
       // already returned, so this branch carries its own descent —
@@ -116,7 +125,7 @@ primitive _Assignment
         return
       end
       p.bump()
-      _Assignment(p, _ExprNormal)
+      _Assignment(p, _ExprNormal, "assign rhs")
       p.wrap_from(mark, NdAssign)
       p.ascend()
     end
@@ -129,14 +138,14 @@ primitive _Infix
   precedence -- so each operator simply takes everything to its left,
   nesting `a + b + c` to the left as ponyc's INFIX_BUILD does.
   """
-  fun apply(p: _Parser ref, mode: _ExprMode) =>
+  fun apply(p: _Parser ref, mode: _ExprMode, what: String val) =>
     let mark = p.chain()
-    _Term(p, mode)
+    _Term(p, mode, what)
     var going = true
     while going do
       if p.at(TkAs) then
         p.bump()
-        _TypeRule(p)
+        _TypeRule(p, "type")
         p.chain_wrap(mark, NdAsOp)
       elseif p.at(TkIs) or p.at(TkIsnt) or _IsBinOp(p.current()) then
         p.bump()
@@ -144,7 +153,7 @@ primitive _Infix
         if p.at(TkQuestion) then
           p.bump()
         end
-        _Term(p, _ExprNormal)
+        _Term(p, _ExprNormal, "value")
         p.chain_wrap(mark, NdBinOp)
       else
         going = false
@@ -171,7 +180,7 @@ primitive _Term
   """
   ponyc's `term`: a control structure, a `consume`, or a pattern.
   """
-  fun apply(p: _Parser ref, mode: _ExprMode) =>
+  fun apply(p: _Parser ref, mode: _ExprMode, what: String val) =>
     // Every expression-level descent passes through this rule, control
     // structures in condition position included, so the depth guard
     // here covers what the guard in the sequence rule cannot: nesting
@@ -184,7 +193,7 @@ primitive _Term
     | TkIf =>
       // In a case pattern an `if` is the case's guard, not a conditional.
       if mode is _ExprCase then
-        _Pattern(p, mode)
+        _Pattern(p, mode, what)
       else
         _Cond(p)
       end
@@ -200,7 +209,7 @@ primitive _Term
     | TkConsume => _Consume(p)
     | TkConstant => _ConstExpr(p)
     else
-      _Pattern(p, mode)
+      _Pattern(p, mode, what)
     end
     p.ascend()
 
@@ -208,11 +217,11 @@ primitive _Pattern
   """
   ponyc's `pattern`: a local declaration, or an expression.
   """
-  fun apply(p: _Parser ref, mode: _ExprMode) =>
+  fun apply(p: _Parser ref, mode: _ExprMode, what: String val) =>
     match p.current()
     | TkVar | TkLet | TkEmbed | TkMatchCapture => _Local(p)
     else
-      _ParamPattern(p, mode)
+      _ParamPattern(p, mode, what)
     end
 
 primitive _Local
@@ -222,10 +231,10 @@ primitive _Local
   fun apply(p: _Parser ref) =>
     p.start(NdLocal)
     p.bump()
-    p.expect(TkId, "a variable name")
+    p.expect(TkId, "variable name")
     if p.at(TkColon) then
       p.bump()
-      _TypeRule(p)
+      _TypeRule(p, "variable type")
     end
     p.finish()
 
@@ -234,7 +243,7 @@ primitive _ParamPattern
   ponyc's `parampattern`: a prefix operator applied to one, or a postfix
   expression.
   """
-  fun apply(p: _Parser ref, mode: _ExprMode) =>
+  fun apply(p: _Parser ref, mode: _ExprMode, what: String val) =>
     if _IsPrefixOp(p.current(), mode) then
       // A prefix chain recurses here without passing the sequence rule
       // or `_Term`, so it carries its own descent.
@@ -243,11 +252,16 @@ primitive _ParamPattern
       end
       p.start(NdUnaryOp)
       p.bump()
-      _ParamPattern(p, _ExprNormal)
+      // After the operator the newline forms no longer matter, but a
+      // case pattern stays one: ponyc's `caseprefix` recurses through
+      // `caseparampattern`, so `| -if` is still a missing expression.
+      _ParamPattern(p,
+        if mode is _ExprCase then _ExprCase else _ExprNormal end,
+        "expression")
       p.finish()
       p.ascend()
     else
-      _Postfix(p, mode)
+      _Postfix(p, mode, what)
     end
 
 primitive _IsPrefixOp
@@ -271,9 +285,9 @@ primitive _Postfix
   ponyc's `postfix`: an atom, then any number of `.`, `~`, `.>`, type
   arguments and calls applied to it.
   """
-  fun apply(p: _Parser ref, mode: _ExprMode) =>
+  fun apply(p: _Parser ref, mode: _ExprMode, what: String val) =>
     let mark = p.chain()
-    _Atom(p, mode)
+    _Atom(p, mode, what)
 
     // Each operator wraps everything so far, so `x.y.z(k)` nests to the
     // left as ponyc's INFIX_BUILD does: the receiver of `.z` is `x.y`, and
@@ -288,7 +302,8 @@ primitive _Postfix
           else NdChain
           end
         p.bump()
-        p.expect(TkId, "a member name")
+        p.expect(TkId,
+          if kind is NdDot then "member name" else "method name" end)
         p.chain_wrap(mark, kind)
       elseif p.at(TkLsquare) then
         _TypeArgs(p)
@@ -312,24 +327,29 @@ primitive _Call
   fun apply(p: _Parser ref) =>
     p.start(NdArgs)
     p.bump()
-    if not (p.at(TkRparen) or p.at(TkWhere)) then
+    if p.at_expr_start() then
       _Positional(p)
     end
     if p.at(TkWhere) then
       _NamedArgs(p)
     end
-    p.expect(TkRparen, "a closing parenthesis")
+    p.expect(TkRparen, ")")
     p.finish()
     if p.at(TkQuestion) then
       p.bump()
     end
 
 primitive _Positional
+  """
+  ponyc's `positional`: the comma-separated arguments of a call, entered
+  only on a token that starts an expression, as ponyc's optional rule
+  is.
+  """
   fun apply(p: _Parser ref) =>
-    _RawSeq(p)
+    _RawSeq(p, "argument")
     while p.at(TkComma) do
       p.bump()
-      _RawSeq(p)
+      _RawSeq(p, "argument")
     end
 
 primitive _NamedArgs
@@ -349,9 +369,9 @@ primitive _NamedArgs
 primitive _NamedArg
   fun apply(p: _Parser ref) =>
     p.start(NdNamedArg)
-    p.expect(TkId, "an argument name")
-    p.expect(TkAssign, "an equals sign")
-    _RawSeq(p)
+    p.expect(TkId, "named argument")
+    p.expect(TkAssign, "=")
+    _RawSeq(p, "argument value")
     p.finish()
 
 primitive _ConstExpr
@@ -366,6 +386,6 @@ primitive _ConstExpr
     end
     p.start(NdConstExpr)
     p.bump()
-    _Postfix(p, _ExprNormal)
+    _Postfix(p, _ExprNormal, "formal argument value")
     p.finish()
     p.ascend()

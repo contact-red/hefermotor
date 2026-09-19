@@ -49,6 +49,48 @@ primitive _TokenSets
     [ TkIso; TkTrn; TkRef; TkVal; TkBox; TkTag
       TkCapRead; TkCapSend; TkCapShare; TkCapAlias; TkCapAny ]
 
+  fun expr_start(): Array[TokenKind] val =>
+    """
+    The tokens an expression can start with: ponyc's `atom` first set
+    with the prefix operators, the local declarations, the jumps and the
+    control keywords, both forms of `(` and `[` included. Where an
+    expression is optional, a rule enters it only on one of these.
+    """
+    [ TkId; TkThis; TkLocation; TkTrue; TkFalse; TkInt; TkFloat; TkString
+      TkObject; TkLbrace; TkAtLbrace; TkAt
+      TkLparen; TkLparenNew; TkLsquare; TkLsquareNew
+      TkNot; TkAddress; TkDigestof; TkMinus; TkMinusNew; TkMinusTilde
+      TkMinusTildeNew
+      TkVar; TkLet; TkEmbed; TkMatchCapture
+      TkReturn; TkBreak; TkContinue; TkError; TkCompileIntrinsic
+      TkCompileError
+      TkIf; TkIfdef; TkIftypeSet; TkMatch; TkWhile; TkRepeat; TkFor; TkWith
+      TkTry; TkRecover; TkConsume; TkConstant ]
+
+  fun case_pattern_start(): Array[TokenKind] val =>
+    """
+    The tokens a `match` case pattern can start with: ponyc's
+    `casepattern` first set, which is `expr_start` without the jumps,
+    the control keywords other than `while` and `for`, `consume` and
+    `#`, since an `if` there is the case's guard.
+    """
+    [ TkId; TkThis; TkLocation; TkTrue; TkFalse; TkInt; TkFloat; TkString
+      TkObject; TkLbrace; TkAtLbrace; TkAt
+      TkLparen; TkLparenNew; TkLsquare; TkLsquareNew
+      TkNot; TkAddress; TkDigestof; TkMinus; TkMinusNew; TkMinusTilde
+      TkMinusTildeNew
+      TkVar; TkLet; TkEmbed; TkMatchCapture
+      TkWhile; TkFor ]
+
+  fun type_start(): Array[TokenKind] val =>
+    """
+    The tokens `_AtomType` accepts, which is ponyc's `atomtype` first
+    set with the generic capabilities.
+    """
+    [ TkThis; TkIso; TkTrn; TkRef; TkVal; TkBox; TkTag
+      TkCapRead; TkCapSend; TkCapShare; TkCapAlias; TkCapAny
+      TkLparen; TkLparenNew; TkId; TkLbrace; TkAtLbrace ]
+
   fun literals(): Array[TokenKind] val =>
     [TkTrue; TkFalse; TkInt; TkFloat; TkString]
 

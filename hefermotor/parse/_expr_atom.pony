@@ -9,7 +9,7 @@ primitive _Atom
   statement admits only the newline forms -- and in whether an `if` is a
   conditional or a case's guard.
   """
-  fun apply(p: _Parser ref, mode: _ExprMode) =>
+  fun apply(p: _Parser ref, mode: _ExprMode, what: String val) =>
     let kind = p.current()
     match kind
     | TkId =>
@@ -34,7 +34,7 @@ primitive _Atom
     | TkFor => _For(p)
     | TkIf =>
       if mode is _ExprCase then
-        p.expected("an expression")
+        p.expected(what)
       else
         _Cond(p)
       end
@@ -44,7 +44,7 @@ primitive _Atom
       elseif _opens_array(kind, mode) then
         _ArrayLit(p)
       else
-        p.expected("an expression")
+        p.expected(what)
       end
     end
 
@@ -71,17 +71,17 @@ primitive _Grouped
     p.start(NdGrouped)
     p.bump()
     let mark = p.checkpoint()
-    _RawSeq(p)
+    _RawSeq(p, "value")
     var tuple = false
     while p.at(TkComma) do
       tuple = true
       p.bump()
-      _RawSeq(p)
+      _RawSeq(p, "value")
     end
     if tuple then
       p.wrap_from(mark, NdTuple)
     end
-    p.expect(TkRparen, "a closing parenthesis")
+    p.expect(TkRparen, ")")
     p.finish()
 
 primitive _ArrayLit
@@ -94,14 +94,14 @@ primitive _ArrayLit
     if p.at(TkAs) then
       p.start(NdArrayType)
       p.bump()
-      _TypeRule(p)
-      p.expect(TkColon, "a colon")
+      _TypeRule(p, "type")
+      p.expect(TkColon, ":")
       p.finish()
     end
-    if not p.at(TkRsquare) then
-      _RawSeq(p)
+    if p.at_expr_start() then
+      _RawSeq(p, "array elements")
     end
-    p.expect(TkRsquare, "a closing bracket")
+    p.expect(TkRsquare, "]")
     p.finish()
 
 primitive _FFICall
@@ -111,18 +111,18 @@ primitive _FFICall
   fun apply(p: _Parser ref) =>
     p.start(NdFFICall)
     p.bump()
-    p.expect_any([TkId; TkString], "an FFI name")
+    p.expect_any([TkId; TkString], "ffi name")
     if p.at(TkLsquare) then
       _TypeArgs(p)
     end
-    p.expect_any(_TokenSets.lparen(), "an opening parenthesis")
-    if not (p.at(TkRparen) or p.at(TkWhere)) then
+    p.expect_any(_TokenSets.lparen(), "(")
+    if p.at_expr_start() then
       _Positional(p)
     end
     if p.at(TkWhere) then
       _NamedArgs(p)
     end
-    p.expect(TkRparen, "a closing parenthesis")
+    p.expect(TkRparen, ")")
     if p.at(TkQuestion) then
       p.bump()
     end
@@ -148,11 +148,11 @@ primitive _Object
     if p.at(TkIs) then
       p.start(NdProvides)
       p.bump()
-      _TypeRule(p)
+      _TypeRule(p, "provided type")
       p.finish()
     end
     _Members(p)
-    p.expect(TkEnd, "`end`")
+    p.expect(TkEnd, "end")
     p.finish()
     p.ascend()
 
@@ -179,24 +179,26 @@ primitive _Lambda
     if p.at_any(_TokenSets.lsquare()) then
       _TypeParams(p)
     end
-    p.expect_any(_TokenSets.lparen(), "an opening parenthesis")
-    if not p.at(TkRparen) then
+    p.expect_any(_TokenSets.lparen(), "(")
+    // ponyc's `OPT RULE("parameters", lambdaparams)`: entered only
+    // where a parameter can start.
+    if p.at(TkId) then
       _LambdaParams(p)
     end
-    p.expect(TkRparen, "a closing parenthesis")
+    p.expect(TkRparen, ")")
     if p.at_any(_TokenSets.lparen()) then
       _LambdaCaptures(p)
     end
     if p.at(TkColon) then
       p.bump()
-      _TypeRule(p)
+      _TypeRule(p, "return type")
     end
     if p.at(TkQuestion) then
       p.bump()
     end
-    p.expect(TkDblarrow, "`=>`")
-    _RawSeq(p)
-    p.expect(TkRbrace, "a closing brace")
+    p.expect(TkDblarrow, "=>")
+    _RawSeq(p, "lambda body")
+    p.expect(TkRbrace, "}")
     if p.at_any(_TokenSets.caps()) then
       p.bump()
     end
@@ -220,10 +222,10 @@ primitive _LambdaParam
   """
   fun apply(p: _Parser ref) =>
     p.start(NdLambdaParam)
-    p.expect(TkId, "a parameter name")
+    p.expect(TkId, "parameter")
     if p.at(TkColon) then
       p.bump()
-      _TypeRule(p)
+      _TypeRule(p, "parameter type")
     end
     if p.at(TkAssign) then
       _DefaultArg(p)
@@ -239,7 +241,7 @@ primitive _LambdaCaptures
       p.bump()
       _LambdaCapture(p)
     end
-    p.expect(TkRparen, "a closing parenthesis")
+    p.expect(TkRparen, ")")
     p.finish()
 
 primitive _LambdaCapture
@@ -251,14 +253,14 @@ primitive _LambdaCapture
       return
     end
     p.start(NdLambdaCapture)
-    p.expect(TkId, "a capture name")
+    p.expect(TkId, "capture")
     if p.at(TkColon) then
       p.bump()
-      _TypeRule(p)
+      _TypeRule(p, "capture type")
     end
     if p.at(TkAssign) then
       p.bump()
-      _Infix(p, _ExprNormal)
+      _Infix(p, _ExprNormal, "capture value")
     end
     p.finish()
 
@@ -269,5 +271,5 @@ primitive _DefaultArg
   fun apply(p: _Parser ref) =>
     p.start(NdDefaultArg)
     p.bump()
-    _Infix(p, _ExprNormal)
+    _Infix(p, _ExprNormal, "default value")
     p.finish()
