@@ -84,8 +84,9 @@ jobs:
           git -C "$RUNNER_TEMP/ponyc-src" checkout -q --detach FETCH_HEAD
       - name: Token table drift gate
         run: |
+          cp hefermotor/parse/token_kind.pony "$RUNNER_TEMP/token_kind.pony"
           make regen-token-kinds PONYC_SRC="$RUNNER_TEMP/ponyc-src"
-          git diff --exit-code hefermotor/parse/token_kind.pony
+          diff "$RUNNER_TEMP/token_kind.pony" hefermotor/parse/token_kind.pony
       - name: make differential
         run: |
           if [ "$(ulimit -s)" = unlimited ]; then ulimit -s 8192; fi

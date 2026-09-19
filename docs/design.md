@@ -1558,8 +1558,11 @@ the lexer produced (T7).
     protocol through its four outcomes over the shape fixture. T4's
     working answer is taken: the differential
     CI job fetches the pinned ponyc commit shallowly (26 MB, two
-    seconds), runs `make regen-token-kinds` against it and fails on a
-    diff of `token_kind.pony`, and runs `make corpus` with
+    seconds), runs `make regen-token-kinds` against it and fails when
+    `token_kind.pony` changed (by `diff` against a copy: the container
+    job's checkout leaves the workspace outside git's safe directories
+    once the step ends, so `git diff` sees no repository), and runs
+    `make corpus` with
     `PONYC_SRC`, so the checkout's examples, full-program tests and
     tools go through `--check` and the full-program tests through the
     oracle in CI. The oracle over the stdlib takes 7 s (17 s of CPU
