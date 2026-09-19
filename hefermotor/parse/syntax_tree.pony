@@ -54,6 +54,54 @@ class val SyntaxTree
     """
     _Nodes(this)
 
+  fun val docstring(): (Node | None) =>
+    """
+    The package docstring: the module's leading `TkString`.
+    """
+    match _Parts.first(root())
+    | let n: Node => if n.kind() is TkString then n else None end
+    | None => None
+    end
+
+  fun val use_commands(): Array[UseCommand] val =>
+    """
+    The module's `NdUse` children in order, each a `PackageUse` or,
+    when it holds an `NdUseFFI`, an `FfiDecl`; every one precedes
+    every entity.
+    """
+    let out = recover iso Array[UseCommand] end
+    for c in root().children() do
+      if c.kind() is NdUse then
+        match _Parts.unique(c, NdUseFFI)
+        | let ffi: Node => out.push(FfiDecl._create(c, ffi))
+        | None => out.push(PackageUse._create(c))
+        end
+      end
+    end
+    consume out
+
+  fun val entities(): Array[EntityDecl] val =>
+    """
+    The module's `NdClassDef` children in order.
+    """
+    let out = recover iso Array[EntityDecl] end
+    for c in root().children() do
+      if c.kind() is NdClassDef then out.push(EntityDecl._create(c)) end
+    end
+    consume out
+
+  fun val ffi_decls(): Array[FfiDecl] val =>
+    """
+    The FFI declarations among `use_commands`.
+    """
+    let out = recover iso Array[FfiDecl] end
+    for u in use_commands().values() do
+      match u
+      | let d: FfiDecl => out.push(d)
+      end
+    end
+    consume out
+
   fun val path_to(byte: USize): Array[Node] val =>
     """
     The elements covering `byte`, outermost first, ending at a leaf.

@@ -59,6 +59,13 @@ primitive _TokenSets
   fun gencaps(): Array[TokenKind] val =>
     [TkCapRead; TkCapSend; TkCapShare; TkCapAlias; TkCapAny]
 
+  fun caps_or_at(): Array[TokenKind] val =>
+    """
+    What a method may carry before its name: a capability, or `@` for
+    a bare method.
+    """
+    [TkIso; TkTrn; TkRef; TkVal; TkBox; TkTag; TkAt]
+
   fun any_cap(): Array[TokenKind] val =>
     [ TkIso; TkTrn; TkRef; TkVal; TkBox; TkTag
       TkCapRead; TkCapSend; TkCapShare; TkCapAlias; TkCapAny ]
