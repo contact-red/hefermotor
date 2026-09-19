@@ -31,6 +31,13 @@ class _Chain
     // itself, on top of the elements parsed since the mark.
     wraps.push((k, from.u32(), ((size - index) + wraps.size() + 1).u32()))
 
+type _Opener is (USize, USize)
+  """
+  A construct's opening token, its byte offset and width, for `close`
+  to position an unterminated record over. A tuple rather than an
+  object because every call, group and control structure takes one.
+  """
+
 class _Parser
   """
   A cursor over the significant tokens of a source, and a builder for the
@@ -374,6 +381,35 @@ class _Parser
     else
       expected(what)
       false
+    end
+
+  fun ref open(): _Opener =>
+    """
+    The next significant token as the opener of a construct; a rule
+    takes it before bumping the token, and gives it to `close`.
+    """
+    (let _, let index, let byte) = _peek()
+    (byte, _stream.token(index)._2.usize())
+
+  fun ref close(opener: _Opener, closer: TokenKind, what: String val) =>
+    """
+    Emit the next significant token if it is `closer`. Otherwise record
+    `SyntaxUnterminated(what, before)` over the opener, with `before` at
+    the token here (at the end of the file, at the last significant
+    token), and emit nothing. This is ponyc's `TERMINATE`, and like it
+    the record says only that the parser reached no closer: a closer
+    later in the source that the rules inside the construct stopped
+    short of is reported the same way. The record is made whatever was
+    recorded inside, and is not noted for the dedupe, so a rule failing
+    on the token here still records there.
+    """
+    if at(closer) then
+      bump()
+    else
+      (let found, _, let byte) = _peek()
+      let before = if found is TkEof then _last_significant else byte end
+      (let offset, let width) = opener
+      _records.record(SyntaxUnterminated(what, before), offset, width)
     end
 
   fun ref expect_any(kinds: Array[TokenKind] box, what: String val): Bool =>

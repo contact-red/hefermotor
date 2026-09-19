@@ -62,11 +62,13 @@ class val SyntaxExpected is diag.DiagnosticCause
 
 class val SyntaxUnterminated is diag.DiagnosticCause
   """
-  `parse/unterminated`: the construct `what` opened at this token was
-  not closed. Positioned over the opening token. `before` is the byte
-  where the parser stopped looking for the closer: the current token's
-  start, or the last significant token's at the end of the file; it is
-  data for a renderer, not part of the message.
+  `parse/unterminated`: the parser reached no closer for the construct
+  `what` opened at this token, either because the source has none or
+  because the rules inside the construct stopped short of it; ponyc's
+  `TERMINATE` reports both the same way. Positioned over the opening
+  token. `before` is the byte where the parser stopped looking: the
+  current token's start, or the last significant token's at the end of
+  the file; it is not part of the message.
   """
   let what: String
   let before: USize

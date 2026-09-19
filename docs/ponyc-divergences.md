@@ -90,6 +90,33 @@ Every other entry cites ponyc at commit `6a0bfa80b`.
   statements too and can report at every one, so these two families are
   the ones it produces beyond ponyc's count. `parse/nesting` and `parse/lex` are
   never dropped.
+- **Junk inside a closed construct is reported as the junk.** ponyc's
+  sequence rule stops at a token that starts no expression, so the
+  construct's `TERMINATE` fails there and ponyc reports the construct
+  unterminated at its opener (`if true then 1 : 2 end` gives
+  `unterminated if expression` at the `if`, with an `Info:` frame at
+  the `:`). hefermotor's statement rule reports the `:`, the sequence
+  rule takes it as an error node, and the `end` closes the `if`, so the
+  report is one `parse/expected` at the junk and nothing at the `if`.
+  The fixtures of this shape carry `KNOWN_GAP positions`.
+- **A closer the parser does not reach is reported at the opener,
+  beside whatever was reported inside.** `close` records
+  `parse/unterminated` over the construct's opening token whenever the
+  token in the closer's place is not the closer, as ponyc's `TERMINATE`
+  does (`parserapi.c:91-99`, the primary error on the construct's own
+  node), and with `before` where ponyc's `Info:` frame points. That
+  covers a closer the source lacks and a closer the source has that
+  the rules inside stopped short of: `{(,) => 1 }` has its `}`, but
+  the parameter list fails at the `,`, nothing inside a lambda's header
+  resynchronises, and `close` finds the `,`. ponyc reports one error
+  per restart region and stops, so where that one error is inside the
+  construct (`foo(1,` at the end of the file gives `expected argument
+  after ,` only; `{(,) => 1 }` gives `expected ) after (` only),
+  hefermotor also records the opener, and its sorted list starts at
+  the opener where ponyc's line is the inner one. T2 of Discussion #13
+  is the choice to make the opener's record conditional instead; its
+  cost there lists the end-of-file shapes, and the closer-present
+  shape belongs on the same list.
 - **An expectation's message names the token found.** hefermotor
   renders "syntax error: expected WHAT, found TOKEN"; ponyc renders
   "syntax error: expected WHAT after LAST" (`parserapi.c:88`), and

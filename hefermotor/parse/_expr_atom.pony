@@ -90,6 +90,7 @@ primitive _ArrayLit
   """
   fun apply(p: _Parser ref) =>
     p.start(NdArray)
+    let opener = p.open()
     p.bump()
     if p.at(TkAs) then
       p.start(NdArrayType)
@@ -101,7 +102,7 @@ primitive _ArrayLit
     if p.at_expr_start() then
       _RawSeq(p, "array elements")
     end
-    p.expect(TkRsquare, "]")
+    p.close(opener, TkRsquare, "array literal")
     p.finish()
 
 primitive _FFICall
@@ -110,6 +111,7 @@ primitive _FFICall
   """
   fun apply(p: _Parser ref) =>
     p.start(NdFFICall)
+    let opener = p.open()
     p.bump()
     p.expect_any([TkId; TkString], "ffi name")
     if p.at(TkLsquare) then
@@ -122,7 +124,7 @@ primitive _FFICall
     if p.at(TkWhere) then
       _NamedArgs(p)
     end
-    p.expect(TkRparen, ")")
+    p.close(opener, TkRparen, "ffi arguments")
     if p.at(TkQuestion) then
       p.bump()
     end
@@ -140,6 +142,7 @@ primitive _Object
       return
     end
     p.start(NdObject)
+    let opener = p.open()
     p.bump()
     _Annotated(p)
     if p.at_any(_TokenSets.caps()) then
@@ -152,7 +155,7 @@ primitive _Object
       p.finish()
     end
     _Members(p)
-    p.expect(TkEnd, "end")
+    p.close(opener, TkEnd, "object literal")
     p.finish()
     p.ascend()
 
@@ -168,6 +171,7 @@ primitive _Lambda
       return
     end
     p.start(kind)
+    let opener = p.open()
     p.bump()
     _Annotated(p)
     if p.at_any(_TokenSets.caps()) then
@@ -198,7 +202,7 @@ primitive _Lambda
     end
     p.expect(TkDblarrow, "=>")
     _RawSeq(p, "lambda body")
-    p.expect(TkRbrace, "}")
+    p.close(opener, TkRbrace, "lambda expression")
     if p.at_any(_TokenSets.caps()) then
       p.bump()
     end

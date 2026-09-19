@@ -6,13 +6,14 @@ primitive _Cond
   """
   fun apply(p: _Parser ref) =>
     p.start(NdIf)
+    let opener = p.open()
     p.bump()
     _Annotated(p)
     _RawSeq(p, "condition expression")
     p.expect(TkThen, "then")
     _RawSeq(p, "then value")
     _ElseTail(p, TkIf)
-    p.expect(TkEnd, "end")
+    p.close(opener, TkEnd, "if expression")
     p.finish()
 
 primitive _IfDef
@@ -21,13 +22,14 @@ primitive _IfDef
   """
   fun apply(p: _Parser ref) =>
     p.start(NdIfDef)
+    let opener = p.open()
     p.bump()
     _Annotated(p)
     _Infix(p, _ExprNormal, "condition expression")
     p.expect(TkThen, "then")
     _RawSeq(p, "then value")
     _ElseTail(p, TkIfdef)
-    p.expect(TkEnd, "end")
+    p.close(opener, TkEnd, "ifdef expression")
     p.finish()
 
 primitive _ElseTail
@@ -74,6 +76,7 @@ primitive _IfTypeSet
   """
   fun apply(p: _Parser ref) =>
     p.start(NdIfTypeSet)
+    let opener = p.open()
     p.bump()
     _Annotated(p)
     _IfTypeClause(p)
@@ -83,7 +86,7 @@ primitive _IfTypeSet
       _IfTypeClause(p)
     end
     _ElseClause(p, "else value")
-    p.expect(TkEnd, "end")
+    p.close(opener, TkEnd, "iftype expression")
     p.finish()
 
 primitive _IfTypeClause
@@ -102,6 +105,7 @@ primitive _Match
   """
   fun apply(p: _Parser ref) =>
     p.start(NdMatch)
+    let opener = p.open()
     p.bump()
     _Annotated(p)
     _RawSeq(p, "match expression")
@@ -111,7 +115,7 @@ primitive _Match
     end
     p.finish()
     _ElseClause(p, "else clause")
-    p.expect(TkEnd, "end")
+    p.close(opener, TkEnd, "match expression")
     p.finish()
 
 primitive _Case
@@ -142,18 +146,20 @@ primitive _Case
 primitive _While
   fun apply(p: _Parser ref) =>
     p.start(NdWhile)
+    let opener = p.open()
     p.bump()
     _Annotated(p)
     _RawSeq(p, "condition expression")
     p.expect(TkDo, "do")
     _RawSeq(p, "while body")
     _ElseClause(p, "else clause")
-    p.expect(TkEnd, "end")
+    p.close(opener, TkEnd, "while loop")
     p.finish()
 
 primitive _Repeat
   fun apply(p: _Parser ref) =>
     p.start(NdRepeat)
+    let opener = p.open()
     p.bump()
     _Annotated(p)
     _RawSeq(p, "repeat body")
@@ -161,12 +167,13 @@ primitive _Repeat
     _Annotated(p)
     _RawSeq(p, "condition expression")
     _ElseClause(p, "else clause")
-    p.expect(TkEnd, "end")
+    p.close(opener, TkEnd, "repeat loop")
     p.finish()
 
 primitive _For
   fun apply(p: _Parser ref) =>
     p.start(NdFor)
+    let opener = p.open()
     p.bump()
     _Annotated(p)
     _IdSeq(p, "iterator name")
@@ -175,12 +182,13 @@ primitive _For
     p.expect(TkDo, "do")
     _RawSeq(p, "for body")
     _ElseClause(p, "else clause")
-    p.expect(TkEnd, "end")
+    p.close(opener, TkEnd, "for loop")
     p.finish()
 
 primitive _With
   fun apply(p: _Parser ref) =>
     p.start(NdWith)
+    let opener = p.open()
     p.bump()
     _Annotated(p)
     _WithElem(p)
@@ -190,7 +198,7 @@ primitive _With
     end
     p.expect(TkDo, "do")
     _RawSeq(p, "with body")
-    p.expect(TkEnd, "end")
+    p.close(opener, TkEnd, "with expression")
     p.finish()
 
 primitive _WithElem
@@ -237,6 +245,7 @@ primitive _IdSeqName
 primitive _Try
   fun apply(p: _Parser ref) =>
     p.start(NdTry)
+    let opener = p.open()
     p.bump()
     _Annotated(p)
     _RawSeq(p, "try body")
@@ -248,19 +257,20 @@ primitive _Try
       _RawSeq(p, "try then body")
       p.finish()
     end
-    p.expect(TkEnd, "end")
+    p.close(opener, TkEnd, "try expression")
     p.finish()
 
 primitive _Recover
   fun apply(p: _Parser ref) =>
     p.start(NdRecover)
+    let opener = p.open()
     p.bump()
     _Annotated(p)
     if p.at_any(_TokenSets.caps()) then
       p.bump()
     end
     _RawSeq(p, "recover body")
-    p.expect(TkEnd, "end")
+    p.close(opener, TkEnd, "recover expression")
     p.finish()
 
 primitive _Consume
