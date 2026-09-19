@@ -25,11 +25,11 @@ actor \nodoc\ Main is TestList
     test(_TestStopsAtFirstType)
     test(_TestUseDeclEquality)
     test(_TestEntryPointsAgree)
+    test(_TestUsesOnlyScansToTheFirstEntity)
     test(_TestNoDiagnosticsWhenWellFormed)
     test(_TestGuardForms)
     test(_TestSeveralUsesOnOneLine)
     test(_TestMalformedUseSkipped)
-    test(_TestStubStopsAtRestartToken)
 
 primitive \nodoc\ _Uses
   fun apply(content: String): Array[UseDecl] val =>
@@ -188,6 +188,14 @@ class \nodoc\ iso _TestStopsAtFirstType is UnitTest
       "use \"a\"\n\nclass Foo\n  fun apply() => None\n\nuse \"b\"\n"))
     h.assert_array_eq[String](["a"], _Uses.locators(
       "use \"a\"\nactor Main\n  new create(env: Env) => None\nuse \"b\"\n"))
+    let keywords: Array[String] val =
+      ["type"; "interface"; "trait"; "primitive"; "struct"; "class"; "actor"]
+    for keyword in keywords.values() do
+      h.assert_array_eq[String](["a"], _Uses.locators(
+        "use \"a\"\n" + keyword + " T\nuse \"b\"\n"), keyword)
+    end
+    h.assert_array_eq[String](["a"; "b"], _Uses.locators(
+      "use \"a\"\ntypedef T\nuse \"b\"\n"))
 
 class \nodoc\ iso _TestUseDeclEquality is UnitTest
   fun name(): String => "parse/uses: equality compares every field"
@@ -212,10 +220,12 @@ class \nodoc\ iso _TestUseDeclEquality is UnitTest
 
 class \nodoc\ iso _TestEntryPointsAgree is UnitTest
   """
-  `Parse(file).uses` and `Parse.uses_only(file)` agree element by
-  element. `apply` takes its `uses` from `uses_only`, so this test
-  cannot fail until `apply` reads them from the tree. Its M1 inputs are
-  the ponyc `packages/` tree and the broken-file corpus.
+  `Parse(file).uses()` and `Parse.uses_only(file)` agree element by
+  element: over a section with a docstring, a bare, an aliased and
+  guarded, and an FFI command, and a `use` after the entity; over
+  every tree fixture; and over an entity keyword flush against the
+  section's last token, a literal or a guard, where the prefix tree's
+  last leaf must end exactly there.
   """
   fun name(): String => "parse/uses: the two entry points agree"
 
@@ -225,25 +235,62 @@ class \nodoc\ iso _TestEntryPointsAgree is UnitTest
       "use @f[I32]()\nclass C\nuse \"c\"\n"
     let file = source.SourceFile("/p", "a.pony", content)
     let whole = Parse(file)
+    h.assert_eq[USize](2, whole.uses().size())
+    h.assert_true(whole.file() is file)
+    _agree(h, content)
+    for src in _Fixtures().values() do _agree(h, src) end
+    _agree(h, "use \"a\"class C\n")
+    _agree(h, "\"\"\"d\"\"\"class C\n")
+    _agree(h, "use \"a\" if (linux)class C\n")
+
+  fun _agree(h: TestHelper, src: String val) =>
+    let file = source.SourceFile("/p", "a.pony", src)
+    let whole = Parse(file).uses()
     let section = Parse.uses_only(file)
-    h.assert_eq[USize](section.size(), whole.uses.size())
-    h.assert_eq[USize](2, section.size())
+    h.assert_eq[USize](section.size(), whole.size(), src)
     var i: USize = 0
-    while i < section.size() do
+    while (i < section.size()) and (i < whole.size()) do
       try
-        h.assert_true(section(i)? == whole.uses(i)?, "use " + i.string())
+        h.assert_true(section(i)? == whole(i)?, src + ": use " + i.string())
       else
-        h.fail("index " + i.string())
+        _Unreachable()
       end
       i = i + 1
     end
-    h.assert_true(whole.file is file)
+
+class \nodoc\ iso _TestUsesOnlyScansToTheFirstEntity is UnitTest
+  """
+  `uses_only` scans the stream no further than the first entity
+  keyword: with the keyword at token `k` (trivia counted, by the eager
+  scan), at most `k + 1` tokens are scanned of a file whose body is
+  thousands more.
+  """
+  fun name(): String => "parse/uses: uses_only scans to the first entity"
+
+  fun apply(h: TestHelper) =>
+    let content: String val = recover val
+      "use \"a\"\nuse b = \"b\"\nclass C\n  fun f() =>\n    " +
+        "x = x + 1\n    ".mul(2000)
+    end
+    var k: USize = 0
+    for (i, (kind, _)) in _EagerScan(content).pairs() do
+      if kind is TkClass then k = i; break end
+    end
+    h.assert_true(k > 0, "no class token")
+    let file = source.SourceFile("/p", "a.pony", content)
+    let stream = _TokenStream(content)
+    let uses = Parse._uses_only(file, stream)
+    h.assert_eq[USize](2, uses.size())
+    h.assert_true(stream._scanned() <= (k + 1),
+      "scanned " + stream._scanned().string() + " tokens for the class " +
+      "at " + k.string())
+    h.assert_true(_EagerScan(content).size() > (k + 1000),
+      "the body is not thousands of tokens")
 
 class \nodoc\ iso _TestNoDiagnosticsWhenWellFormed is UnitTest
   """
-  `apply` drops what the parser records, so this test cannot fail until
-  `apply` reports diagnostics. It holds the contract's last clause:
-  well-formed input produces no diagnostics.
+  Well-formed input produces no diagnostics, the last clause of
+  `Parse`'s docstring.
   """
   fun name(): String => "parse/apply: no diagnostics on well-formed input"
 
@@ -251,31 +298,12 @@ class \nodoc\ iso _TestNoDiagnosticsWhenWellFormed is UnitTest
     let parsed = Parse(source.SourceFile("/p", "a.pony",
       "use \"a\"\n\nactor Main\n  new create(env: Env) => None\n"))
     h.assert_eq[USize](0, parsed.diagnostics.size())
-    h.assert_eq[USize](1, parsed.uses.size())
-
-class \nodoc\ iso _TestStubStopsAtRestartToken is UnitTest
-  """
-  The scanner stops at the first line whose first token opens a type
-  definition and skips every other non-`use` line, so `typedef` does not
-  end the section. Deleted with the scanner.
-  """
-  fun name(): String => "parse/stub: stops at the first type keyword"
-
-  fun apply(h: TestHelper) =>
-    let keywords: Array[String] val =
-      ["type"; "interface"; "trait"; "primitive"; "struct"; "class"
-       "actor"]
-    for keyword in keywords.values() do
-      h.assert_array_eq[String](["a"], _Uses.locators(
-        "use \"a\"\n" + keyword + " T\nuse \"b\"\n"), keyword)
-    end
-    h.assert_array_eq[String](["a"; "b"], _Uses.locators(
-      "use \"a\"\ntypedef T\nuse \"b\"\n"))
+    h.assert_eq[USize](1, parsed.uses().size())
 
 class \nodoc\ iso _TestGuardForms is UnitTest
   """
-  A guard follows `if` and any non-identifier byte: a blank, a `(`, or
-  the end of the line, in which case the guard is the next line.
+  A guard is the expression after `if`, parenthesised, on the next
+  line, or one string literal; `ifx` is an identifier, not `if`.
   """
   fun name(): String => "parse/uses: guard forms"
 
@@ -286,8 +314,9 @@ class \nodoc\ iso _TestGuardForms is UnitTest
       "  windows\n" +
       "use \"c\" if \n" +
       "  osx or bsd\n" +
-      "use \"d\" ifx\n")
-    h.assert_eq[USize](4, uses.size())
+      "use \"d\" ifx\n" +
+      "use \"e\" if \"f\"\n")
+    h.assert_eq[USize](5, uses.size())
     try
       _Uses.span(h, uses(0)?.guard as diag.Span, 10, 7, "paren guard")
       _Uses.span(h, uses(0)?.span, 0, 17, "paren span")
@@ -298,8 +327,13 @@ class \nodoc\ iso _TestGuardForms is UnitTest
       _Uses.span(h, uses(2)?.guard as diag.Span, 53, 10, "spaced guard")
       h.assert_true(uses(3)?.guard is None)
       _Uses.span(h, uses(3)?.span, 64, 7, "ifx span")
+      // A guard that is one string literal is the guard, not a second
+      // locator: `use "e" if "f"` starts at 76.
+      h.assert_eq[String]("e", uses(4)?.locator)
+      _Uses.span(h, uses(4)?.guard as diag.Span, 87, 3, "literal guard")
+      _Uses.span(h, uses(4)?.span, 76, 14, "literal guard span")
     else
-      h.fail("four uses expected")
+      h.fail("five uses expected")
     end
 
 class \nodoc\ iso _TestSeveralUsesOnOneLine is UnitTest
@@ -324,16 +358,72 @@ class \nodoc\ iso _TestSeveralUsesOnOneLine is UnitTest
 
 class \nodoc\ iso _TestMalformedUseSkipped is UnitTest
   """
-  A line that says `use` but does not fit `use [alias =] "locator" [if
-  guard]` yields no declaration and does not end the section.
+  Each row is a command near the shape `use [alias =] "locator" [if
+  guard]`, followed by `use "z"\nprimitive Z`; none ends the section.
+  `use = "a"`, `use x "b"` and `use` alone yield no declaration (`ponyc
+  --pass=parse`: `1:5: expected specifier after use`; `1:7: expected =
+  after x`; `2:1: expected specifier after use`). `use "c` yields the
+  locator `c\nuse `, since the literal runs to the next quote and
+  holds a raw newline (ponyc's first error: `2:6: unexpected token z
+  after use command`). A triple-quoted locator is accepted by both.
   """
   fun name(): String => "parse/uses: a malformed use is skipped"
 
   fun apply(h: TestHelper) =>
-    h.assert_array_eq[String](["z"], _Uses.locators(
-      "use = \"a\"\n" +
-      "use x \"b\"\n" +
-      "use \"c\n" +
-      "use \"\"\"d\"\"\"\n" +
-      "use\n" +
-      "use \"z\"\n"))
+    let tail = "use \"z\"\nprimitive Z\n"
+    _row(h, "use = \"a\"\n" + tail, ["z"], 4)
+    _row(h, "use x \"b\"\n" + tail, ["z"], 6)
+    _row(h, "use \"c\n" + tail, ["c\nuse "], 12)
+    _row(h, "use \"\"\"d\"\"\"\n" + tail, ["d"; "z"], None)
+    _row(h, "use\n" + tail, ["z"], 4)
+    // A guard cut by the entity keyword: the command survives with no
+    // guard and its span ends at the literal; ponyc's `2:1: expected
+    // use condition after if`.
+    let cut: String val = "use \"a\" if\nprimitive Z\n"
+    _row(h, cut, ["a"], 11)
+    try
+      let u = _Uses(cut)(0)?
+      h.assert_true(u.guard is None, "cut guard")
+      _Uses.span(h, u.span, 0, 7, "cut span")
+    else
+      h.fail("no use")
+    end
+    // A guard cut inside an expression ends at its last token, not at
+    // the newline the failed operand's rule read past: ponyc's `2:1:
+    // expected value after -` and `2:1: expected value after (`.
+    let cut_operand: String val = "use \"a\" if x -\nprimitive Z\n"
+    _row(h, cut_operand, ["a"], 15)
+    let cut_group: String val = "use \"a\" if (\nprimitive Z\n"
+    _row(h, cut_group, ["a"], 13)
+    try
+      _Uses.span(h, _Uses(cut_operand)(0)?.guard as diag.Span, 11, 3,
+        "cut operand guard")
+      _Uses.span(h, _Uses(cut_operand)(0)?.span, 0, 14, "cut operand span")
+      _Uses.span(h, _Uses(cut_group)(0)?.guard as diag.Span, 11, 1,
+        "cut group guard")
+    else
+      h.fail("no use")
+    end
+
+  fun _row(h: TestHelper, src: String val, locators: Array[String] val,
+    first: (USize | None))
+  =>
+    """
+    Asserts `locators` is what both entry points give for `src`, and
+    that `Parse`'s first diagnostic starts at `first`, or that there is
+    none.
+    """
+    h.assert_array_eq[String](locators, _Uses.locators(src), src)
+    let parsed = Parse(source.SourceFile("/p", "a.pony", src))
+    let whole = recover iso Array[String] end
+    for u in parsed.uses().values() do whole.push(u.locator) end
+    h.assert_array_eq[String](locators, consume whole, src + " (apply)")
+    match first
+    | let at: USize =>
+      try
+        h.assert_eq[USize](at, _Start(parsed.diagnostics(0)?), src)
+      else
+        h.fail(src + ": no diagnostic")
+      end
+    | None => h.assert_eq[USize](0, parsed.diagnostics.size(), src)
+    end

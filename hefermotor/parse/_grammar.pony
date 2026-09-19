@@ -1,25 +1,8 @@
-use diag = "../diagnostics"
-use source = "../source"
-
 // Pony's item grammar, ported rule for rule from ponyc's parser.c: module,
 // use, entity declarations, members, methods, fields and parameters.
 //
 // Method bodies, field values, default arguments and use conditions are
 // expressions, and `expr_grammar.pony` has those rules.
-
-primitive _ParseModule
-  """
-  Parse a file into a tree, with what the parser recorded.
-
-  Never fails, whatever the input. What cannot be interpreted becomes an
-  `NdError` node bounded by the next item, and parsing continues.
-  """
-  fun apply(file: source.SourceFile)
-    : (SyntaxTree val, Array[diag.Diagnostic] val)
-  =>
-    let p = _Parser(file)
-    _Module(p)
-    p.build()
 
 primitive _What
   """

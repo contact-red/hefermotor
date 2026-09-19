@@ -30,14 +30,6 @@ actor \nodoc\ Main is TestList
     test(_TestScheduleStalls)
     test(_TestProgressDrains)
 
-primitive \nodoc\ _NoParse
-  """
-  A parse step that reads nothing: no uses, no diagnostics.
-  """
-  fun apply(file: source.SourceFile): parse.ParsedFile =>
-    parse.ParsedFile(file, recover val Array[parse.UseDecl] end,
-      recover val Array[diag.Diagnostic] end)
-
 class \nodoc\ val _FileNoted
   """
   A test-only cause: one per file that went through the parse step.
@@ -52,15 +44,16 @@ class \nodoc\ val _FileNoted
 
 primitive \nodoc\ _NotingParse
   """
-  A parse step that leaves one diagnostic per file, so the path from
+  The real parse with one diagnostic added per file, so the path from
   `ParsedFile.diagnostics` into the report is exercised.
   """
   fun apply(file: source.SourceFile): parse.ParsedFile =>
-    parse.ParsedFile(file, recover val Array[parse.UseDecl] end,
-      recover val
-        [diag.Diagnostic(_FileNoted(file.path()),
-          diag.FileOnly(file.dir, file.name))]
-      end)
+    let parsed = parse.Parse(file)
+    let noted = recover iso Array[diag.Diagnostic] end
+    noted.append(parsed.diagnostics)
+    noted.push(diag.Diagnostic(_FileNoted(file.path()),
+      diag.FileOnly(file.dir, file.name)))
+    parse.ParsedFile(parsed.tree, consume noted)
 
 primitive \nodoc\ _RecordingAnalysis
   """
@@ -146,9 +139,9 @@ primitive \nodoc\ _CheckingAnalysis
       end
       for (i, pf) in m.files.pairs() do
         try
-          if pf.file.path() != m.package.files(i)?.path() then
+          if pf.file().path() != m.package.files(i)?.path() then
             found.push(diag.Diagnostic(
-              _ParseOrderWrong(pf.file.path() + " at " + i.string()),
+              _ParseOrderWrong(pf.file().path() + " at " + i.string()),
               diag.Nowhere))
           end
         end
@@ -202,13 +195,13 @@ primitive \nodoc\ _Fixture
     : Array[discover.ParsedPackage] val
   =>
     """
-    Each member with its files run through `_NoParse`, as `_GroupRun`
+    Each member with its files run through `parse.Parse`, as `_GroupRun`
     builds them after its fan-out.
     """
     let out = recover iso Array[discover.ParsedPackage] end
     for m in members.values() do
       let files = recover iso Array[parse.ParsedFile] end
-      for f in m.files.values() do files.push(_NoParse(f)) end
+      for f in m.files.values() do files.push(parse.Parse(f)) end
       out.push(discover.ParsedPackage(m, consume files))
     end
     consume out
@@ -583,7 +576,7 @@ class \nodoc\ iso _TestScheduleHandsClosureExports is UnitTest
     // a missing dependency hash here.
     let program = _Fixture()?
     h.long_test(2_000_000_000)
-    Schedule(program, _Fixture.config(), _NoParse, _RecordingAnalysis)
+    Schedule(program, _Fixture.config(), parse.Parse, _RecordingAnalysis)
       .next[None]({(r: Report) =>
         try
           let b = r.export_of(program.package("/pkgs/b")?.dir)
@@ -620,7 +613,7 @@ class \nodoc\ iso _TestParseRejoinsPerMember is UnitTest
     let program = discover.Discover(fs, discover.SearchRoots(["/pkgs"]),
       "/work", "/pkgs/a") as discover.Program
     h.long_test(2_000_000_000)
-    Schedule(program, _Fixture.config(), _NoParse, _CheckingAnalysis)
+    Schedule(program, _Fixture.config(), parse.Parse, _CheckingAnalysis)
       .next[None]({(r: Report) =>
         for d in r.diagnostics.values() do
           h.assert_ne[String]("schedule-test/parse-order", d.cause.code(),
@@ -680,7 +673,7 @@ class \nodoc\ iso _TestScheduleReportsContractViolation is UnitTest
   fun apply(h: TestHelper) ? =>
     let program = _Fixture()?
     h.long_test(2_000_000_000)
-    Schedule(program, _Fixture.config(), _NoParse, _WrongExportsAnalysis)
+    Schedule(program, _Fixture.config(), parse.Parse, _WrongExportsAnalysis)
       .next[None]({(r: Report) =>
         h.assert_true(r.has_internal_errors())
         let counts = _CountByCode(r)
@@ -725,7 +718,7 @@ class \nodoc\ iso _TestScheduleBuiltinOnly is UnitTest
     let program = discover.Discover(fs, discover.SearchRoots(["/pkgs"]),
       "/work", "/nowhere") as discover.Program
     h.long_test(2_000_000_000)
-    Schedule(program, _Fixture.config(), _NoParse, _DiagnosingAnalysis)
+    Schedule(program, _Fixture.config(), parse.Parse, _DiagnosingAnalysis)
       .next[None]({(r: Report) =>
         let counts = _CountByCode(r)
         h.assert_eq[USize](1,
@@ -749,7 +742,7 @@ class \nodoc\ iso _TestScheduleStalls is UnitTest
     let program = discover.Program([discover.Group(0, [], [0])], builtin,
       None, [])
     h.long_test(2_000_000_000)
-    Schedule(program, _Fixture.config(), _NoParse, _DiagnosingAnalysis)
+    Schedule(program, _Fixture.config(), parse.Parse, _DiagnosingAnalysis)
       .next[None]({(r: Report) =>
         h.assert_true(r.has_internal_errors())
         h.assert_eq[USize](1, r.diagnostics.size())

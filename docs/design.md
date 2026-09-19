@@ -1236,6 +1236,52 @@ the lexer produced (T7).
     a `trivia` flag and `_Skeleton` is `_Shape` without it. Full
     harness: 95 compared, 0 differ.
 
+11. **The boundary: `ParsedFile`, `uses_only`, the stubs.**
+    `ParsedFile(tree, diagnostics)` with `file()` and `uses()`;
+    `_UsesOf` reads the module's `NdUse` children (a command with a
+    string literal among its direct children; an alias from
+    `NdUseName`; the guard is the one node after `if`; the span runs
+    from the keyword to the guard's or the literal's end, so a guard
+    cut by an entity keyword leaves `guard` `None` and the span at the
+    literal). `Parse.uses_only` is `_uses_only(file, stream)`: the
+    prefix rule, then `_Parser.stop`, which flushes the pending trivia
+    and emits a `TkEof` at the stop offset, then `build`, the records
+    discarded. `_Parser` takes its stream, for the laziness test.
+    `_use_scanner.pony`, `_ParseModule` and the stub test are gone; the
+    three test stubs run `parse.Parse`; the five-row malformed-command
+    table replaces the scanner's test, each row's ponyc line quoted,
+    with the raw-newline row (`use "c` runs to the next quote,
+    T7's working answer). The six scanner gaps closed: the harness
+    reported each `known gap closed` and their markers are removed.
+    Measured single-threaded over the stdlib's 465 files (best of
+    seven, release): the M0 scanner read the sections in 0.64 ms, the
+    prefix parse reads them in 5.9 ms, and the full parse, which lexes
+    every token, takes 271 ms (the full lex alone was 114 ms in the
+    design's pricing; not re-measured, since the full parse, which
+    includes the lex, bounds it); `hefermotor check` over the stdlib,
+    release build,
+    is 0.20–0.21 s on `main` and the branch alike, with the trees now
+    kept in every `ParsedFile` (max RSS 118–126 MB on the branch
+    against 114–123 on `main`).
+    Deviation from the task text: the equivalence of the two entry
+    points over the stdlib is not a unit test, since the test binary
+    has no path to the ponyc packages; it was run by an ad-hoc scratch
+    program over all 465 files (362 commands, none differing) and task
+    13's `tools/syntax --check` is where it runs from then on. The unit
+    test compares them over the tree fixtures and the
+    flush-against-keyword inputs, and the laziness test pins that
+    `uses_only` scans no token past the first entity keyword.
+    A guard that is one string literal is the guard, not a second
+    locator: `_UsesOf` takes whatever node follows `if`. A node now
+    ends at its last real token as it begins at its first:
+    `_Parser.finish`, `wrap_from` and `chain_wrap` leave trailing
+    trivia to the enclosing node, and `finish` moves a node that
+    consumed nothing before the trivia flushed ahead of it, so a guard
+    cut inside an expression (`use "a" if x -` then a newline) spans
+    `x -` and not the newline the failed operand's rule read past;
+    every node's span on incomplete input ends the same way, which the
+    views will rely on.
+
 ### The ponyc-bump procedure
 
 Every claim about ponyc in these documents cites commit `6a0bfa80b`;
