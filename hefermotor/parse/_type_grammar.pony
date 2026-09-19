@@ -7,17 +7,18 @@
 
 primitive _TypeRule
   """
-  ponyc's `type`: an atom, optionally followed by a viewpoint.
+  ponyc's `type`: an atom, optionally followed by a viewpoint. `what`
+  is the site's noun, which a missing type is reported as.
   """
-  fun apply(p: _Parser ref) =>
+  fun apply(p: _Parser ref, what: String val) =>
     if p.too_deep("type") then
       return
     end
     let mark = p.checkpoint()
-    _AtomType(p)
+    _AtomType(p, what)
     if p.at(TkArrow) then
       p.bump()
-      _TypeRule(p)
+      _TypeRule(p, "viewpoint")
       p.wrap_from(mark, NdViewpoint)
     end
     p.ascend()
@@ -26,14 +27,14 @@ primitive _InfixType
   """
   ponyc's `infixtype`: types joined by `|` or `&`.
   """
-  fun apply(p: _Parser ref) =>
+  fun apply(p: _Parser ref, what: String val) =>
     let mark = p.checkpoint()
-    _TypeRule(p)
+    _TypeRule(p, what)
     var joined = false
     while p.at(TkPipe) or p.at(TkIsecttype) do
       joined = true
       p.bump()
-      _TypeRule(p)
+      _TypeRule(p, "type")
     end
     if joined then
       p.wrap_from(mark, NdInfixType)
@@ -44,7 +45,7 @@ primitive _AtomType
   ponyc's `atomtype`: `this`, a capability, a parenthesised type, a named
   type, or a lambda type.
   """
-  fun apply(p: _Parser ref) =>
+  fun apply(p: _Parser ref, what: String val) =>
     if p.at(TkThis) then
       p.start(NdThisType)
       p.bump()
@@ -60,7 +61,7 @@ primitive _AtomType
     elseif p.at(TkAtLbrace) then
       _LambdaType(p, NdBareLambdaType)
     else
-      p.expected("a type")
+      p.expected(what)
     end
 
 primitive _Nominal
@@ -72,7 +73,7 @@ primitive _Nominal
     p.bump()
     if p.at(TkDot) then
       p.bump()
-      p.expect(TkId, "a type name")
+      p.expect(TkId, "name")
     end
     if p.at(TkLsquare) then
       _TypeArgs(p)
@@ -95,17 +96,17 @@ primitive _GroupedType
     p.start(NdGroupedType)
     p.bump()
     let mark = p.checkpoint()
-    _InfixType(p)
+    _InfixType(p, "type")
     var tuple = false
     while p.at(TkComma) do
       tuple = true
       p.bump()
-      _InfixType(p)
+      _InfixType(p, "type")
     end
     if tuple then
       p.wrap_from(mark, NdTupleType)
     end
-    p.expect(TkRparen, "a closing parenthesis")
+    p.expect(TkRparen, ")")
     p.finish()
 
 primitive _LambdaType
@@ -125,19 +126,21 @@ primitive _LambdaType
     if p.at_any(_TokenSets.lsquare()) then
       _TypeParams(p)
     end
-    p.expect_any(_TokenSets.lparen(), "an opening parenthesis")
-    if not p.at(TkRparen) then
+    p.expect_any(_TokenSets.lparen(), "(")
+    // ponyc's `OPT RULE("parameters", typelist)`: entered only where a
+    // type can start.
+    if p.at_type_start() then
       _TypeList(p)
     end
-    p.expect(TkRparen, "a closing parenthesis")
+    p.expect(TkRparen, ")")
     if p.at(TkColon) then
       p.bump()
-      _TypeRule(p)
+      _TypeRule(p, "return type")
     end
     if p.at(TkQuestion) then
       p.bump()
     end
-    p.expect(TkRbrace, "a closing brace")
+    p.expect(TkRbrace, "}")
     if p.at_any(_TokenSets.any_cap()) then
       p.bump()
     end
@@ -152,10 +155,10 @@ primitive _TypeList
   """
   fun apply(p: _Parser ref) =>
     p.start(NdTypeList)
-    _TypeRule(p)
+    _TypeRule(p, "parameter type")
     while p.at(TkComma) do
       p.bump()
-      _TypeRule(p)
+      _TypeRule(p, "parameter type")
     end
     p.finish()
 
@@ -169,19 +172,19 @@ primitive _TypeArgs
   fun apply(p: _Parser ref) =>
     p.start(NdTypeArgs)
     p.bump()
-    _TypeArg(p)
+    _TypeArg(p, "type argument")
     while p.at(TkComma) do
       p.bump()
-      _TypeArg(p)
+      _TypeArg(p, "type argument")
     end
-    p.expect(TkRsquare, "a closing bracket")
+    p.expect(TkRsquare, "]")
     p.finish()
 
 primitive _TypeArg
   """
   ponyc's `typearg`: a type, a literal, or a `#`-prefixed constant.
   """
-  fun apply(p: _Parser ref) =>
+  fun apply(p: _Parser ref, what: String val) =>
     if p.at_any(_TokenSets.literals()) then
       p.start(NdValueFormalArg)
       p.bump()
@@ -191,7 +194,7 @@ primitive _TypeArg
       _ConstExpr(p)
       p.finish()
     else
-      _TypeRule(p)
+      _TypeRule(p, what)
     end
 
 primitive _TypeParams
@@ -209,22 +212,24 @@ primitive _TypeParams
       p.bump()
       _TypeParam(p)
     end
-    p.expect(TkRsquare, "a closing bracket")
+    p.expect(TkRsquare, "]")
     p.finish()
 
 primitive _TypeParam
   """
-  ponyc's `typeparam`: a name, an optional constraint, an optional default.
+  ponyc's `typeparam`: a name, an optional constraint, an optional
+  default. A missing name is reported as the list's "type parameter",
+  as ponyc's not-found propagation reports it.
   """
   fun apply(p: _Parser ref) =>
     p.start(NdTypeParam)
-    p.expect(TkId, "a type parameter name")
+    p.expect(TkId, "type parameter")
     if p.at(TkColon) then
       p.bump()
-      _TypeRule(p)
+      _TypeRule(p, "type constraint")
     end
     if p.at(TkAssign) then
       p.bump()
-      _TypeArg(p)
+      _TypeArg(p, "default type argument")
     end
     p.finish()

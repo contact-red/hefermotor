@@ -8,11 +8,11 @@ primitive _Cond
     p.start(NdIf)
     p.bump()
     _Annotated(p)
-    _RawSeq(p)
-    p.expect(TkThen, "`then`")
-    _RawSeq(p)
+    _RawSeq(p, "condition expression")
+    p.expect(TkThen, "then")
+    _RawSeq(p, "then value")
     _ElseTail(p, TkIf)
-    p.expect(TkEnd, "`end`")
+    p.expect(TkEnd, "end")
     p.finish()
 
 primitive _IfDef
@@ -23,11 +23,11 @@ primitive _IfDef
     p.start(NdIfDef)
     p.bump()
     _Annotated(p)
-    _Infix(p, _ExprNormal)
-    p.expect(TkThen, "`then`")
-    _RawSeq(p)
+    _Infix(p, _ExprNormal, "condition expression")
+    p.expect(TkThen, "then")
+    _RawSeq(p, "then value")
     _ElseTail(p, TkIfdef)
-    p.expect(TkEnd, "`end`")
+    p.expect(TkEnd, "end")
     p.finish()
 
 primitive _ElseTail
@@ -44,23 +44,27 @@ primitive _ElseTail
       p.bump()
       _Annotated(p)
       if chain_kind is TkIfdef then
-        _Infix(p, _ExprNormal)
+        _Infix(p, _ExprNormal, "condition expression")
       else
-        _RawSeq(p)
+        _RawSeq(p, "condition expression")
       end
-      p.expect(TkThen, "`then`")
-      _RawSeq(p)
+      p.expect(TkThen, "then")
+      _RawSeq(p, "then value")
       p.finish()
     end
-    _ElseClause(p)
+    _ElseClause(p, "else value")
 
 primitive _ElseClause
-  fun apply(p: _Parser ref) =>
+  """
+  The `else ...` that may close a control structure; `what` is ponyc's
+  noun for the missing body at the site.
+  """
+  fun apply(p: _Parser ref, what: String val) =>
     if p.at(TkElse) then
       p.start(NdElse)
       p.bump()
       _Annotated(p)
-      _RawSeq(p)
+      _RawSeq(p, what)
       p.finish()
     end
 
@@ -78,18 +82,18 @@ primitive _IfTypeSet
       _Annotated(p)
       _IfTypeClause(p)
     end
-    _ElseClause(p)
-    p.expect(TkEnd, "`end`")
+    _ElseClause(p, "else value")
+    p.expect(TkEnd, "end")
     p.finish()
 
 primitive _IfTypeClause
   fun apply(p: _Parser ref) =>
     p.start(NdIfType)
-    _TypeRule(p)
-    p.expect(TkSubtype, "`<:`")
-    _TypeRule(p)
-    p.expect(TkThen, "`then`")
-    _RawSeq(p)
+    _TypeRule(p, "iftype clause")
+    p.expect(TkSubtype, "<:")
+    _TypeRule(p, "type")
+    p.expect(TkThen, "then")
+    _RawSeq(p, "then value")
     p.finish()
 
 primitive _Match
@@ -100,14 +104,14 @@ primitive _Match
     p.start(NdMatch)
     p.bump()
     _Annotated(p)
-    _RawSeq(p)
+    _RawSeq(p, "match expression")
     p.start(NdCases)
     while p.at(TkPipe) do
       _Case(p)
     end
     p.finish()
-    _ElseClause(p)
-    p.expect(TkEnd, "`end`")
+    _ElseClause(p, "else clause")
+    p.expect(TkEnd, "end")
     p.finish()
 
 primitive _Case
@@ -118,20 +122,20 @@ primitive _Case
     p.start(NdCase)
     p.bump()
     _Annotated(p)
-    if not (p.at(TkIf) or p.at(TkDblarrow) or p.at(TkPipe) or
-      p.at(TkElse) or p.at(TkEnd))
-    then
-      _Pattern(p, _ExprCase)
+    // ponyc's `OPT RULE("case pattern", casepattern)`: entered only
+    // where a case pattern can start, which an `if` cannot.
+    if p.at_case_pattern_start() then
+      _Pattern(p, _ExprCase, "value")
     end
     if p.at(TkIf) then
       p.start(NdGuard)
       p.bump()
-      _RawSeq(p)
+      _RawSeq(p, "guard expression")
       p.finish()
     end
     if p.at(TkDblarrow) then
       p.bump()
-      _RawSeq(p)
+      _RawSeq(p, "case body")
     end
     p.finish()
 
@@ -140,11 +144,11 @@ primitive _While
     p.start(NdWhile)
     p.bump()
     _Annotated(p)
-    _RawSeq(p)
-    p.expect(TkDo, "`do`")
-    _RawSeq(p)
-    _ElseClause(p)
-    p.expect(TkEnd, "`end`")
+    _RawSeq(p, "condition expression")
+    p.expect(TkDo, "do")
+    _RawSeq(p, "while body")
+    _ElseClause(p, "else clause")
+    p.expect(TkEnd, "end")
     p.finish()
 
 primitive _Repeat
@@ -152,12 +156,12 @@ primitive _Repeat
     p.start(NdRepeat)
     p.bump()
     _Annotated(p)
-    _RawSeq(p)
-    p.expect(TkUntil, "`until`")
+    _RawSeq(p, "repeat body")
+    p.expect(TkUntil, "until")
     _Annotated(p)
-    _RawSeq(p)
-    _ElseClause(p)
-    p.expect(TkEnd, "`end`")
+    _RawSeq(p, "condition expression")
+    _ElseClause(p, "else clause")
+    p.expect(TkEnd, "end")
     p.finish()
 
 primitive _For
@@ -165,13 +169,13 @@ primitive _For
     p.start(NdFor)
     p.bump()
     _Annotated(p)
-    _IdSeq(p)
-    p.expect(TkIn, "`in`")
-    _RawSeq(p)
-    p.expect(TkDo, "`do`")
-    _RawSeq(p)
-    _ElseClause(p)
-    p.expect(TkEnd, "`end`")
+    _IdSeq(p, "iterator name")
+    p.expect(TkIn, "in")
+    _RawSeq(p, "iterator")
+    p.expect(TkDo, "do")
+    _RawSeq(p, "for body")
+    _ElseClause(p, "else clause")
+    p.expect(TkEnd, "end")
     p.finish()
 
 primitive _With
@@ -184,24 +188,24 @@ primitive _With
       p.bump()
       _WithElem(p)
     end
-    p.expect(TkDo, "`do`")
-    _RawSeq(p)
-    p.expect(TkEnd, "`end`")
+    p.expect(TkDo, "do")
+    _RawSeq(p, "with body")
+    p.expect(TkEnd, "end")
     p.finish()
 
 primitive _WithElem
   fun apply(p: _Parser ref) =>
     p.start(NdWithElem)
-    _IdSeq(p)
-    p.expect(TkAssign, "an equals sign")
-    _RawSeq(p)
+    _IdSeq(p, "with expression")
+    p.expect(TkAssign, "=")
+    _RawSeq(p, "initialiser")
     p.finish()
 
 primitive _IdSeq
   """
   ponyc's `idseq`: the names a `for` or a `with` binds, one or a tuple.
   """
-  fun apply(p: _Parser ref) =>
+  fun apply(p: _Parser ref, what: String val) =>
     // Recurses through _IdSeqName without passing the sequence or term
     // rules, so it carries its own descent.
     if p.too_deep("expression") then
@@ -210,24 +214,24 @@ primitive _IdSeq
     p.start(NdIdSeq)
     if p.at_any(_TokenSets.lparen()) then
       p.bump()
-      _IdSeqName(p)
+      _IdSeqName(p, "variable name")
       while p.at(TkComma) do
         p.bump()
-        _IdSeqName(p)
+        _IdSeqName(p, "variable name")
       end
-      p.expect(TkRparen, "a closing parenthesis")
+      p.expect(TkRparen, ")")
     else
-      _IdSeqName(p)
+      _IdSeqName(p, what)
     end
     p.finish()
     p.ascend()
 
 primitive _IdSeqName
-  fun apply(p: _Parser ref) =>
+  fun apply(p: _Parser ref, what: String val) =>
     if p.at_any(_TokenSets.lparen()) then
-      _IdSeq(p)
+      _IdSeq(p, "variable name")
     else
-      p.expect(TkId, "a variable name")
+      p.expect(TkId, what)
     end
 
 primitive _Try
@@ -235,16 +239,16 @@ primitive _Try
     p.start(NdTry)
     p.bump()
     _Annotated(p)
-    _RawSeq(p)
-    _ElseClause(p)
+    _RawSeq(p, "try body")
+    _ElseClause(p, "try else body")
     if p.at(TkThen) then
       p.start(NdThen)
       p.bump()
       _Annotated(p)
-      _RawSeq(p)
+      _RawSeq(p, "try then body")
       p.finish()
     end
-    p.expect(TkEnd, "`end`")
+    p.expect(TkEnd, "end")
     p.finish()
 
 primitive _Recover
@@ -255,8 +259,8 @@ primitive _Recover
     if p.at_any(_TokenSets.caps()) then
       p.bump()
     end
-    _RawSeq(p)
-    p.expect(TkEnd, "`end`")
+    _RawSeq(p, "recover body")
+    p.expect(TkEnd, "end")
     p.finish()
 
 primitive _Consume
@@ -266,7 +270,7 @@ primitive _Consume
     if p.at_any(_TokenSets.caps()) then
       p.bump()
     end
-    _Term(p, _ExprNormal)
+    _Term(p, _ExprNormal, "expression")
     p.finish()
 
 primitive _Annotated

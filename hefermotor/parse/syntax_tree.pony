@@ -21,16 +21,9 @@ class val SyntaxTree
     """
     The file the tree covers.
     """
-  let diagnostics: Array[SyntaxDiagnostic val] val
-    """
-    What the parser recorded while building the tree.
-    """
   let _elems: Array[SyntaxElement] val
 
-  new val _create(
-    file': source.SourceFile,
-    elems: Array[SyntaxElement] val,
-    diagnostics': Array[SyntaxDiagnostic val] val)
+  new val _create(file': source.SourceFile, elems: Array[SyntaxElement] val)
   =>
     """
     Takes the elements as the parser lays them out: the children of
@@ -42,7 +35,6 @@ class val SyntaxTree
     """
     file = file'
     _elems = elems
-    diagnostics = diagnostics'
 
   fun size(): USize =>
     """

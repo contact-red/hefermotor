@@ -82,6 +82,30 @@ Every other entry cites ponyc at commit `6a0bfa80b`.
   `parse.StackNeed()` (3 MiB) of scheduler thread stack, below which
   `hefermotor check` exits 2 before reading anything.
 
+- **The per-file budget.** 500 kept `parse/expected` and
+  `parse/unterminated` records per file, then one `parse/limit` at the
+  file; ponyc caps nothing. ponyc reports at most one parser error per
+  restart region (`parser.c:1301-1302` and `:1221-1222`, the `use` and
+  `class_def` `RESTART` sets), while hefermotor resyncs at members and
+  statements too and can report at every one, so these two families are
+  the ones it produces beyond ponyc's count. `parse/nesting` and `parse/lex` are
+  never dropped.
+- **An expectation's message names the token found.** hefermotor
+  renders "syntax error: expected WHAT, found TOKEN"; ponyc renders
+  "syntax error: expected WHAT after LAST" (`parserapi.c:88`), and
+  positions an expectation at the end of the file at the last token
+  (`parserapi.c:33-37`), as hefermotor does. Both are positioned at the
+  found token, so hefermotor names the token at the position it points
+  to, except at the end of the file, where it names the end and points
+  at the last token. WHAT is ponyc's rule description at every site,
+  and the caller's description where ponyc's not-found propagation
+  reports that (`parserapi.c:359-368`). At a resynchronisation site where ponyc's
+  message is a restart check ("unexpected token X after ...",
+  `parserapi.c:604`), WHAT names what hefermotor's rule expected:
+  "field or method", or the module's "use command or type, interface,
+  trait, primitive, class or actor definition". The "syntax error: "
+  prefix is ponyc's for every parser error and no lexer error.
+
 ## Pinned in pony-lsp2
 
 Each of these was pinned by a probe against ponyc 0.69.1 in pony-lsp2 and

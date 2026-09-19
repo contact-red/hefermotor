@@ -7,6 +7,7 @@ build the package graph, and `apply` runs the grammar over the whole
 file and is the only reporter of parse diagnostics.
 """
 use diag = "../diagnostics"
+use sort = "../sort"
 use source = "../source"
 
 class val UseDecl is Equatable[UseDecl]
@@ -60,7 +61,8 @@ class val UseDecl is Equatable[UseDecl]
 class val ParsedFile
   """
   One file after parsing: the source it came from, its `use` section's
-  declarations, and what the parser reported.
+  declarations, and what the parser reported, sorted under
+  `DiagnosticOrder`.
   """
   let file: source.SourceFile
   let uses: Array[UseDecl] val
@@ -73,7 +75,9 @@ class val ParsedFile
   =>
     file = file'
     uses = uses'
-    diagnostics = diagnostics'
+    diagnostics = recover val
+      sort.MergeSort[diag.Diagnostic](diagnostics'.clone())
+    end
 
 primitive StackNeed
   """
@@ -104,11 +108,11 @@ primitive Parse
     _UseScanner(file).run()
 
   fun apply(file: source.SourceFile): ParsedFile =>
-    _ParseModule(file)
-    ParsedFile(file, uses_only(file), recover val Array[diag.Diagnostic] end)
+    (_, let diagnostics) = _ParseModule(file)
+    ParsedFile(file, uses_only(file), diagnostics)
 
   fun tree(file: source.SourceFile): SyntaxTree =>
     """
     The tree the grammar builds over the whole file.
     """
-    _ParseModule(file)
+    _ParseModule(file)._1

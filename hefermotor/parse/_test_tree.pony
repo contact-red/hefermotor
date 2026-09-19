@@ -10,6 +10,7 @@ primitive \nodoc\ _TreeTests is TestList
     test(_TestTriviaBelongToTheEnclosingNode)
     test(_TestTreeCheckEmptyOverFixtures)
     test(_TestTreeCheckRows)
+    test(_TestTreeCheckErrorRows)
     test(_TestErrorIsBounded)
     test(_TestErrorAtTheStart)
     test(_TestDiagnosticsAreRecorded)
@@ -26,7 +27,38 @@ primitive \nodoc\ _ParseText
   Parses a source as a file named `test.pony` in `/test`.
   """
   fun apply(src: String val): SyntaxTree val =>
-    Parse.tree(source.SourceFile("/test", "test.pony", src))
+    Parse.tree(_TestFile(src))
+
+primitive \nodoc\ _Diagnostics
+  """
+  What the parser reports over a source, sorted as `ParsedFile` sorts
+  it.
+  """
+  fun apply(src: String val): Array[diag.Diagnostic] val =>
+    Parse(_TestFile(src)).diagnostics
+
+primitive \nodoc\ _Check
+  """
+  `TreeCheck` over a source's tree and diagnostics.
+  """
+  fun apply(src: String val): Array[TreeViolation] val =>
+    TreeCheck(_ParseText(src), _Diagnostics(src))
+
+primitive \nodoc\ _TestFile
+  fun apply(src: String val): source.SourceFile =>
+    source.SourceFile("/test", "test.pony", src)
+
+primitive \nodoc\ _Start
+  """
+  The byte offset a diagnostic starts at; `USize.max_value()` for one
+  not located at a span.
+  """
+  fun apply(d: diag.Diagnostic): USize =>
+    match d.location
+    | let s: diag.Span => s.start
+    else
+      USize.max_value()
+    end
 
 primitive \nodoc\ _Shape
   fun apply(tree: SyntaxTree val): String val =>
@@ -136,7 +168,7 @@ class \nodoc\ iso _TestTreeCheckEmptyOverFixtures is UnitTest
 
   fun apply(h: TestHelper) =>
     for src in _Fixtures().values() do
-      for v in TreeCheck(_ParseText(src)).values() do
+      for v in _Check(src).values() do
         h.fail(v.string() + " for: " + src)
       end
     end
@@ -145,7 +177,7 @@ class \nodoc\ iso _TestTreeCheckEmptyOverFixtures is UnitTest
       for src in _Fixtures().values() do out.append(src) end
       out
     end
-    for v in TreeCheck(_ParseText(big)).values() do
+    for v in _Check(big).values() do
       h.fail(v.string() + " for the joined fixture")
     end
 
@@ -160,7 +192,7 @@ class \nodoc\ iso _TestTreeCheckRows is UnitTest
     violations reported.
     """
     let file = source.SourceFile("/t", "t.pony", "use \"a\"\n")
-    let sound = _ParseModule(file)
+    let sound = Parse.tree(file)
     // Elements: NdModule(0, 7), NdUse(0, 4), TkUse@0, TkWhitespace@3,
     // TkString@4, TkWhitespace@7, TkEof@8. Widths are derived, so a
     // size or an offset can only move bytes between neighbours, never
@@ -182,13 +214,13 @@ class \nodoc\ iso _TestTreeCheckRows is UnitTest
       ("use starts late", 1, (NdUse, 1, 4),
         "FirstLeafOffset at element 0, OffsetsMonotone at element 2, " +
         "FirstLeafOffset at element 1")
-      ("empty node off its place", 3, (NdError, 3, 1),
+      ("empty node off its place", 3, (NdSeq, 3, 1),
         "FirstLeafOffset at element 3, Reprint at element 4")
-      ("root not a module", 0, (NdError, 0, 7), "OneRoot at element 0")
+      ("root not a module", 0, (NdSeq, 0, 7), "OneRoot at element 0")
       ("leaf sized two", 2, (TkUse, 0, 2),
         "SubtreeSizes at element 2, Reprint at element 3, " +
         "SubtreeSizes at element 1")
-      ("interior last", 6, (NdError, 7, 1),
+      ("interior last", 6, (NdSeq, 7, 1),
         "EofLast at element 6, FirstLeafOffset at element 6, " +
         "Reprint at element 6")
     ]
@@ -215,10 +247,100 @@ class \nodoc\ iso _TestTreeCheckRows is UnitTest
   fun _check(h: TestHelper, file: source.SourceFile,
     elems: Array[SyntaxElement] val, expected: String, label: String)
   =>
-    let broken = SyntaxTree._create(file, elems,
-      recover val Array[SyntaxDiagnostic val] end)
+    let broken = SyntaxTree._create(file, elems)
     let got: String val = ", ".join(
-      Iter[TreeViolation](TreeCheck(broken).values())
+      Iter[TreeViolation](
+        TreeCheck(broken, recover val Array[diag.Diagnostic] end).values())
+        .map[String]({(v) => v.string() }))
+    h.assert_eq[String](expected, got, label)
+
+class \nodoc\ iso _TestTreeCheckErrorRows is UnitTest
+  fun name(): String =>
+    "parse/tree: each TreeCheck error and diagnostic row fires on its fault"
+
+  fun apply(h: TestHelper) =>
+    """
+    Hand-built trees and diagnostic lists, one per row: the sound form
+    passes and the faulty form reports exactly the row.
+    """
+    let expected = {(at: USize): diag.Diagnostic =>
+      diag.Diagnostic(SyntaxExpected("x", TkId),
+        diag.Span("/t", "t.pony", at, 0)) } val
+    let nesting = {(at: USize): diag.Diagnostic =>
+      diag.Diagnostic(NestingTooDeep("x", 2500),
+        diag.Span("/t", "t.pony", at, 1)) } val
+    let limit = diag.Diagnostic(SyntaxLimit(500),
+      diag.FileOnly("/t", "t.pony"))
+    // An error node holding one identifier, under the module.
+    let sound: Array[SyntaxElement] val =
+      [(NdModule, 0, 5); (NdError, 0, 2); (TkId, 0, 1); (TkWhitespace, 1, 1)
+        (TkEof, 2, 1)]
+    _check2(h, "x\n", sound, [expected(0)], "", "sound error node")
+    _check2(h, "x\n", sound, [], "ErrorAtDiagnostic at element 1",
+      "no diagnostic at the error")
+    _check2(h, "x\n", sound, [limit], "", "the limit stands in")
+    _check2(h, "x\n", sound, [expected(1)],
+      "ErrorAtDiagnostic at element 1", "a diagnostic elsewhere")
+    _check2(h, "x\n",
+      [(NdModule, 0, 6); (NdError, 0, 3); (NdSeq, 0, 2); (TkId, 0, 1)
+        (TkWhitespace, 1, 1); (TkEof, 2, 1)],
+      [expected(0)], "ErrorLeafOnly at element 1", "a node in an error")
+    _check2(h, " \n",
+      [(NdModule, 0, 4); (NdError, 0, 2); (TkWhitespace, 0, 1)
+        (TkEof, 2, 1)],
+      [expected(0)], "ErrorNonEmpty at element 1", "trivia only")
+    _check2(h, "$\n",
+      [(NdModule, 0, 5); (NdError, 0, 2); (TkLexError, 0, 1)
+        (TkWhitespace, 1, 1); (TkEof, 2, 1)],
+      [], "", "a lexer refusal needs no record here")
+    // An error node under an entity: only a nesting record excuses it.
+    let under_entity: Array[SyntaxElement] val =
+      [(NdModule, 0, 8); (NdClassDef, 0, 6); (TkClass, 0, 1)
+        (TkWhitespace, 5, 1); (NdError, 6, 2); (TkId, 6, 1)
+        (TkWhitespace, 7, 1); (TkEof, 8, 1)]
+    _check2(h, "class C\n", under_entity, [expected(6)],
+      "ErrorParent at element 4", "an error under an entity")
+    _check2(h, "class C\n", under_entity, [nesting(6)], "",
+      "a refused region under an entity")
+    _check2(h, "class\n",
+      [(NdModule, 0, 5); (NdError, 0, 2); (TkClass, 0, 1)
+        (TkWhitespace, 5, 1); (TkEof, 6, 1)],
+      [expected(0)], "ErrorNoEntity at element 1", "an entity keyword")
+    _check2(h, "class C\n fun\n",
+      [(NdModule, 0, 11); (NdClassDef, 0, 8); (TkClass, 0, 1)
+        (TkWhitespace, 5, 1); (TkId, 6, 1); (TkWhitespace, 7, 1)
+        (NdMembers, 9, 3); (NdError, 9, 2); (TkFun, 9, 1)
+        (TkWhitespace, 12, 1); (TkEof, 13, 1)],
+      [expected(9)], "ErrorNoMemberStart at element 7",
+      "a method start in a member list's error")
+    _check2(h, "use\n",
+      [(NdModule, 0, 5); (NdError, 0, 2); (TkUse, 0, 1)
+        (TkWhitespace, 3, 1); (TkEof, 4, 1)],
+      [expected(0)], "ErrorNoUseInSection at element 1",
+      "a use in the section's error")
+    _check2(h, "class C\nuse\n",
+      [(NdModule, 0, 10); (NdClassDef, 0, 5); (TkClass, 0, 1)
+        (TkWhitespace, 5, 1); (TkId, 6, 1); (TkWhitespace, 7, 1)
+        (NdError, 8, 2); (TkUse, 8, 1); (TkWhitespace, 11, 1)
+        (TkEof, 12, 1)],
+      [expected(8)], "", "a use after an entity is not in the section")
+    _check2(h, "x\n", sound, [expected(0); expected(9)],
+      "DiagnosticInFile at diagnostic 1", "a span past the end")
+    _check2(h, "x\n", sound,
+      [expected(0); diag.Diagnostic(SyntaxExpected("x", TkId),
+        diag.Span("/t", "other.pony", 0, 0))],
+      "DiagnosticInFile at diagnostic 1, DiagnosticsOrdered at " +
+      "diagnostic 1", "another file, which also sorts before this one")
+    _check2(h, "x\n", sound, [expected(1); expected(0)],
+      "DiagnosticsOrdered at diagnostic 1", "out of order")
+
+  fun _check2(h: TestHelper, src: String val, elems: Array[SyntaxElement] val,
+    diagnostics: Array[diag.Diagnostic] val, expected: String, label: String)
+  =>
+    let tree = SyntaxTree._create(source.SourceFile("/t", "t.pony", src),
+      elems)
+    let got: String val = ", ".join(
+      Iter[TreeViolation](TreeCheck(tree, diagnostics).values())
         .map[String]({(v) => v.string() }))
     h.assert_eq[String](expected, got, label)
 
@@ -251,11 +373,11 @@ class \nodoc\ iso _TestDiagnosticsAreRecorded is UnitTest
   fun name(): String => "parse/tree: diagnostics are recorded"
 
   fun apply(h: TestHelper) =>
-    let tree = _ParseText("use 12345\n")
-    h.assert_ne[USize](0, tree.diagnostics.size(), "no diagnostic")
+    let diagnostics = _Diagnostics("use 12345\n")
+    h.assert_ne[USize](0, diagnostics.size(), "no diagnostic")
     try
-      let d = tree.diagnostics(0)?
-      h.assert_true(d.offset <= "use 12345\n".size(),
+      let d = diagnostics(0)?
+      h.assert_true(_Start(d) <= "use 12345\n".size(),
         "diagnostic offset out of range")
     else
       h.fail("no diagnostic")
@@ -285,7 +407,7 @@ class \nodoc\ iso _TestEveryTruncationReprints is UnitTest
       let tree = _ParseText(piece)
       h.assert_eq[String](piece, tree.reprint(),
         "reprint differs at cut " + cut.string())
-      for v in TreeCheck(tree).values() do
+      for v in TreeCheck(tree, _Diagnostics(piece)).values() do
         h.fail(v.string() + " at cut " + cut.string())
       end
       cut = cut + 1
@@ -363,7 +485,7 @@ class \nodoc\ iso _TestNodeViews is UnitTest
     let src: String val =
       "// c\nclass \\a\\ A\n  fun f() => /* n */ x.y + 1\n\nactor B\n"
     let file = source.SourceFile("/pkg", "m.pony", src)
-    let tree = _ParseModule(file)
+    let tree = Parse.tree(file)
     let all = recover iso String end
     let significant = recover iso String end
     var trivia: USize = 0

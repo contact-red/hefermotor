@@ -1,3 +1,4 @@
+use diag = "../diagnostics"
 use source = "../source"
 
 primitive _MaxNesting
@@ -55,9 +56,13 @@ class _Parser
     union of primitives and two integers -- so the array is still built with
     ordinary pushes.
     """
-  var _diagnostics: Array[SyntaxDiagnostic val] iso =
-    recover Array[SyntaxDiagnostic val] end
+  embed _records: _Records
   embed _open: Array[USize] = Array[USize]
+  var _last_significant: USize = 0
+    """
+    The byte offset of the last significant token emitted, where an
+    expectation at the end of the file is positioned.
+    """
   var _index: USize = 0
     """
     Index into the token stream, of the next unconsumed token.
@@ -74,10 +79,19 @@ class _Parser
     rules wrap retroactively from a checkpoint and open nothing while
     they descend, and the machine stack grows regardless.
     """
+  let _expr_start: Array[TokenKind] val = _TokenSets.expr_start()
+    """
+    The entry sets tested at every call, argument list and array are
+    built once here rather than once per test.
+    """
+  let _case_pattern_start: Array[TokenKind] val =
+    _TokenSets.case_pattern_start()
+  let _type_start: Array[TokenKind] val = _TokenSets.type_start()
 
   new create(file: source.SourceFile) =>
     _file = file
     _stream = _TokenStream(file.content)
+    _records = _Records(file)
 
   fun tag _is_trivia(k: TokenKind): Bool =>
     match k
@@ -112,16 +126,22 @@ class _Parser
   fun ref too_deep(what: String val): Bool =>
     """
     Enter one level of grammar recursion; at the limit, refuse the
-    region with a diagnostic naming `what`, resynchronise to the
-    nearest closing token, item or member start, and leave the depth
-    balanced. Returns whether it refused, and a guarded rule returns
-    without parsing further when it did — its other exits still
-    `ascend`.
+    region with a diagnostic naming `what` over the token here (at the
+    end of the file, at the last significant token as `expected` is),
+    resynchronise to the nearest closing token, item or method start,
+    and leave the depth balanced. Returns whether it refused, and a
+    guarded rule returns without parsing further when it did — its
+    other exits still `ascend`.
     """
     if descend() then
-      expected(
-        "a less deeply nested " + what + " (grammar depth limit " +
-          _MaxNesting().string() + ")")
+      (let found, let index, let byte) = _peek()
+      if found is TkEof then
+        _records.record(NestingTooDeep(what, _MaxNesting()),
+          _last_significant, 0)
+      else
+        _records.record(NestingTooDeep(what, _MaxNesting()), byte,
+          _stream.token(index)._2.usize())
+      end
       skip_to(_TokenSets.nesting_close())
       ascend()
       true
@@ -154,6 +174,24 @@ class _Parser
 
   fun ref eof(): Bool =>
     current() is TkEof
+
+  fun ref at_expr_start(): Bool =>
+    """
+    Whether the next significant token can start an expression.
+    """
+    at_any(_expr_start)
+
+  fun ref at_case_pattern_start(): Bool =>
+    """
+    Whether the next significant token can start a case pattern.
+    """
+    at_any(_case_pattern_start)
+
+  fun ref at_type_start(): Bool =>
+    """
+    Whether the next significant token can start a type.
+    """
+    at_any(_type_start)
 
   fun ref _emit(k: SyntaxKind, w: USize) =>
     _elems.push((k, _offset.u32(), 1))
@@ -318,6 +356,8 @@ class _Parser
     if k is TkEof then
       if _eof_emitted then return end
       _eof_emitted = true
+    else
+      _last_significant = _offset
     end
     _emit(k, w.usize())
     _index = _index + 1
@@ -350,14 +390,16 @@ class _Parser
 
   fun ref expected(what: String val) =>
     """
-    Record that `what` was expected here. Consumes nothing.
+    Record that `what` was expected here. Consumes nothing. Records
+    nothing when the token here is a lexer refusal, whose own record
+    says what is wrong, or when a rule before this one already failed
+    on this token.
     """
-    (let found, _, let byte) = _peek()
-    _diagnostics.push(
-      SyntaxDiagnostic(
-        byte,
-        0,
-        "expected " + what + ", found " + found.name()))
+    (let found, let index, let byte) = _peek()
+    if found is TkLexError then return end
+    if not _records.note_expected(index) then return end
+    let position = if found is TkEof then _last_significant else byte end
+    _records.record(SyntaxExpected(what, found), position, 0)
 
   fun ref error_and_recover(what: String val, resync: Array[TokenKind] box) =>
     """
@@ -390,10 +432,10 @@ class _Parser
     end
     finish()
 
-  fun ref build(): SyntaxTree val =>
+  fun ref build(): (SyntaxTree val, Array[diag.Diagnostic] val) =>
     """
     Close anything still open, account for the trailing trivia, and hand
-    back the tree.
+    back the tree and what was recorded, in emission order.
     """
     flush_trivia()
     while _open.size() > 0 do
@@ -402,6 +444,4 @@ class _Parser
     _elems.compact()
     let elems: Array[SyntaxElement] val =
       _elems = recover Array[SyntaxElement] end
-    let diags: Array[SyntaxDiagnostic val] val =
-      _diagnostics = recover Array[SyntaxDiagnostic val] end
-    SyntaxTree._create(_file, elems, diags)
+    (SyntaxTree._create(_file, elems), _records.take())

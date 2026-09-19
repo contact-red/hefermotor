@@ -1026,6 +1026,74 @@ the lexer produced (T7).
    tests, from task 5; the test now keeps the kinds in an array of
    their own, and the compile is back to 75 s.
 
+7. **Parser diagnostics as causes; `Parse.apply` reports.**
+   `causes.pony` holds `SyntaxExpected(what, found)`,
+   `SyntaxUnterminated(what, before)`, `NestingTooDeep(what, limit)`
+   and `SyntaxLimit(limit)`; `SyntaxDiagnostic` and the tree's
+   `diagnostics` field are gone, and `_ParseModule` returns the tree
+   with the records. `_Records` keeps them in emission order under the
+   budget (500 `parse/expected` and `parse/unterminated` per file, then
+   one `SyntaxLimit` at the file) and the dedupe (an expectation at the
+   significant token the last expectation was noted at is dropped);
+   `ParsedFile` sorts them under `DiagnosticOrder`, so `hefermotor
+   check` reports parse errors from this task. `expected` records
+   nothing at a `TkLexError`, whose record is the lexer's (task 9), and
+   positions an expectation at the end of the file at the last
+   significant token. `too_deep` records `NestingTooDeep` over the
+   refused token, and at the end of the file at the last significant
+   token with width 0, as `expected` does. `NestingTooDeep.message` is
+   a sentence, "WHAT nested past the grammar depth limit of N", since
+   it renders on its own line with no "expected" frame. Every `what` is ponyc's rule description, probed at
+   `--pass=parse` and quoted in the tests: the sequence rule and the
+   type rule take the site's noun and thread it to the atom, so a
+   missing type is "field type", "return type", "parameter type",
+   "provided type", "type argument", "type constraint", "variable
+   type", "capture type", "viewpoint" or "iftype clause" by its site;
+   "value" after an operator or a `;`, "assign rhs" after `=`,
+   "expression" after a prefix operator or `consume`, "formal argument
+   value" after `#`; a rule whose first token is a name reports its
+   caller's noun where ponyc's not-found propagation would ("type
+   parameter", "parameter", "capture", "named argument", "iterator
+   name", "with expression"); a closer is its own text. Deviations
+   from the design's task text, each recorded here: `SyntaxUnterminated`
+   has no producer until task 8's `close`, so the budget's unterminated
+   leg is tested through `_Records` only; `_emit` does not read the
+   lexer's failure list, since the cause it would record is task 9's.
+   Entry conditions changed to match ponyc's rules: every optional rule
+   is entered only where its first token can start it, as ponyc's `OPT
+   RULE` is (parameter lists on `TkId` or `...`, positional arguments,
+   array elements and a jump's value on `_TokenSets.expr_start`, a case
+   pattern on `_TokenSets.case_pattern_start`, which has no control
+   keyword but `while` and `for` so that `| if guard =>` is a guard, a
+   lambda's parameters on `TkId`, a lambda type's on
+   `_TokenSets.type_start`), so `f(,)` records `expected )` at `,` as
+   ponyc does and `return ;` ends the sequence at the jump and reports
+   at the `;` from the member list, where ponyc's restart check does; a
+   sequence stops after a jump, as ponyc's `SEQ_STOP_AFTER_CHILD` does;
+   a `;` with nothing after it records `expected value`; and a prefix
+   operator in a case pattern keeps the case mode, as ponyc's
+   `caseprefix` recurses through `caseparampattern`, so `| -if` records
+   `expected expression` where the old normal mode parsed a
+   conditional. The gates also change three `_Shapes` refusal counts
+   from 2 to 1: the unwinding rule no longer re-enters its list at the
+   resync token and refuses again. The three sets the gates test are
+   built once per `_Parser` (`at_expr_start` and its siblings): built
+   per call, at every call expression among other sites, they added
+   10-15% to the sum of `Parse.tree` over the stdlib's files in a debug
+   build, and caching them recovers most of that. Divergences 16 and 17 of Discussion #13 are in
+   `docs/ponyc-divergences.md`. `TreeCheck` takes the diagnostics and gains
+   `ErrorLeafOnly`, `ErrorNonEmpty`, `ErrorAtDiagnostic` (with a
+   third exception until task 9: an error node whose first token is a
+   lexer refusal), `ErrorParent`, `ErrorNoEntity`, `ErrorNoMemberStart`,
+   `ErrorNoUseInSection`, `DiagnosticInFile` and `DiagnosticsOrdered`,
+   each with a hand-built counterfactual; it holds over every fixture,
+   truncation, sweep and shape, and over a file that reaches the
+   budget and then nests past the limit, where the `NestingTooDeep`
+   beside the `SyntaxLimit` is what excuses the refused region's error
+   node under an entity. hefermotor names the token found where ponyc
+   names the token before ("expected ), found ," against ponyc's
+   "expected ) after ("); the positions agree in every probe.
+
 ### The ponyc-bump procedure
 
 Every claim about ponyc in these documents cites commit `6a0bfa80b`;

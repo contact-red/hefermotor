@@ -1,3 +1,4 @@
+use diag = "../diagnostics"
 use source = "../source"
 
 // Pony's item grammar, ported rule for rule from ponyc's parser.c: module,
@@ -8,12 +9,14 @@ use source = "../source"
 
 primitive _ParseModule
   """
-  Parse a file into a tree.
+  Parse a file into a tree, with what the parser recorded.
 
   Never fails, whatever the input. What cannot be interpreted becomes an
   `NdError` node bounded by the next item, and parsing continues.
   """
-  fun apply(file: source.SourceFile): SyntaxTree val =>
+  fun apply(file: source.SourceFile)
+    : (SyntaxTree val, Array[diag.Diagnostic] val)
+  =>
     let p = _Parser(file)
     _Module(p)
     p.build()
@@ -37,7 +40,9 @@ primitive _Module
         _ClassDef(p)
       else
         p.error_and_recover(
-          "a use command or a type definition", _TokenSets.top_level())
+          "use command or type, interface, trait, primitive, class or " +
+            "actor definition",
+          _TokenSets.top_level())
       end
     end
 
@@ -77,13 +82,12 @@ primitive _Use
     elseif p.at(TkAt) then
       _UseFFI(p)
     else
-      p.error_and_recover(
-        "a package path or an FFI declaration", _TokenSets.top_level())
+      p.error_and_recover("specifier", _TokenSets.top_level())
     end
 
     if p.at(TkIf) then
       p.bump()
-      _Infix(p, _ExprNormal)
+      _Infix(p, _ExprNormal, "use condition")
     end
 
     p.finish()
@@ -95,17 +99,17 @@ primitive _UseFFI
   fun apply(p: _Parser ref) =>
     p.start(NdUseFFI)
     p.bump()
-    p.expect_any([TkId; TkString], "an FFI name")
+    p.expect_any([TkId; TkString], "ffi name")
     if p.at(TkLsquare) then
       _TypeArgs(p)
     else
-      p.expected("a return type")
+      p.expected("return type")
     end
-    p.expect_any(_TokenSets.lparen(), "an opening parenthesis")
-    if not p.at(TkRparen) then
+    p.expect_any(_TokenSets.lparen(), "(")
+    if p.at(TkId) or p.at(TkEllipsis) then
       _Params(p)
     end
-    p.expect(TkRparen, "a closing parenthesis")
+    p.expect(TkRparen, ")")
     if p.at(TkQuestion) then
       p.bump()
     end
@@ -130,7 +134,7 @@ primitive _ClassDef
       p.bump()
     end
 
-    p.expect(TkId, "a name")
+    p.expect(TkId, "name")
 
     if p.at_any(_TokenSets.lsquare()) then
       _TypeParams(p)
@@ -139,7 +143,7 @@ primitive _ClassDef
     if p.at(TkIs) then
       p.start(NdProvides)
       p.bump()
-      _TypeRule(p)
+      _TypeRule(p, "provided type")
       p.finish()
     end
 
@@ -164,12 +168,12 @@ primitive _Annotations
   fun apply(p: _Parser ref) =>
     p.start(NdAnnotations)
     p.bump()
-    p.expect(TkId, "an annotation")
+    p.expect(TkId, "annotation")
     while p.at(TkComma) do
       p.bump()
-      p.expect(TkId, "an annotation")
+      p.expect(TkId, "annotation")
     end
-    p.expect(TkBackslash, "a closing backslash")
+    p.expect(TkBackslash, "\\")
     p.finish()
 
 primitive _Members
@@ -189,7 +193,7 @@ primitive _Members
         _Method(p)
       else
         p.error_and_recover(
-          "a field or a method", _TokenSets.member_or_top_level())
+          "field or method", _TokenSets.member_or_top_level())
       end
     end
     p.finish()
@@ -201,12 +205,12 @@ primitive _Field
   fun apply(p: _Parser ref) =>
     p.start(NdField)
     p.bump()
-    p.expect(TkId, "a field name")
-    p.expect(TkColon, "a type declaration, which a field must have")
-    _TypeRule(p)
+    p.expect(TkId, "field name")
+    p.expect(TkColon, "mandatory type declaration on field")
+    _TypeRule(p, "field type")
     if p.at(TkAssign) then
       p.bump()
-      _Infix(p, _ExprNormal)
+      _Infix(p, _ExprNormal, "field value")
     end
     if p.at(TkString) then
       p.bump()
@@ -229,21 +233,23 @@ primitive _Method
       p.bump()
     end
 
-    p.expect(TkId, "a method name")
+    p.expect(TkId, "method name")
 
     if p.at_any(_TokenSets.lsquare()) then
       _TypeParams(p)
     end
 
-    p.expect_any(_TokenSets.lparen(), "an opening parenthesis")
-    if not p.at(TkRparen) then
+    p.expect_any(_TokenSets.lparen(), "(")
+    // ponyc's `OPT RULE("parameters", params)`: entered only where a
+    // parameter can start.
+    if p.at(TkId) or p.at(TkEllipsis) then
       _Params(p)
     end
-    p.expect(TkRparen, "a closing parenthesis")
+    p.expect(TkRparen, ")")
 
     if p.at(TkColon) then
       p.bump()
-      _TypeRule(p)
+      _TypeRule(p, "return type")
     end
     if p.at(TkQuestion) then
       p.bump()
@@ -253,7 +259,7 @@ primitive _Method
     end
     if p.at(TkDblarrow) then
       p.bump()
-      _RawSeq(p)
+      _RawSeq(p, "method body")
     end
 
     p.finish()
@@ -282,9 +288,9 @@ primitive _Param
     end
 
     p.start(NdParam)
-    p.expect(TkId, "a parameter name")
-    p.expect(TkColon, "a type declaration, which a parameter must have")
-    _TypeRule(p)
+    p.expect(TkId, "parameter")
+    p.expect(TkColon, "mandatory type declaration on parameter")
+    _TypeRule(p, "parameter type")
     if p.at(TkAssign) then
       _DefaultArg(p)
     end

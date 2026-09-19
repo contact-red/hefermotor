@@ -69,12 +69,12 @@ primitive \nodoc\ _Clean
     A source that should parse without complaint, and always losslessly.
     """
     h.assert_eq[String](src, tree.reprint(), "reprint differs")
-    if tree.diagnostics.size() > 0 then
-      try
-        h.fail("unexpected diagnostic: " + tree.diagnostics(0)?.string())
-      end
+    try
+      h.fail("unexpected diagnostic: " + _Diagnostics(src)(0)?.string())
     end
-    for v in TreeCheck(tree).values() do h.fail(v.string()) end
+    for v in TreeCheck(tree, _Diagnostics(src)).values() do
+      h.fail(v.string())
+    end
 
 class \nodoc\ iso _TestEntityExtents is UnitTest
   fun name(): String => "parse/grammar: entity extents"
@@ -156,11 +156,15 @@ class \nodoc\ iso _TestUseNameCommits is UnitTest
     h.assert_eq[USize](1, _Find.count(tree, NdUseName))
     h.assert_eq[USize](0, _Find.count(tree, NdError))
     h.assert_eq[String]("x", _Find.text(h, tree, NdUseName))
-    h.assert_eq[USize](1, tree.diagnostics.size())
+    let diagnostics = _Diagnostics(src)
+    h.assert_eq[USize](1, diagnostics.size())
     try
-      let d = tree.diagnostics(0)?
-      h.assert_eq[USize](6, d.offset)
-      h.assert_eq[String]("expected =, found TkString", d.message)
+      let d = diagnostics(0)?
+      h.assert_eq[USize](6, _Start(d))
+      h.assert_eq[String]("syntax error: expected =, found a string literal",
+        d.cause.message())
+    else
+      h.fail("no diagnostic")
     end
 
 class \nodoc\ iso _TestUseNameBeforeAKeyword is UnitTest
@@ -173,20 +177,23 @@ class \nodoc\ iso _TestUseNameBeforeAKeyword is UnitTest
     diagnostic, no error node, and the next item kept.
     """
     let cases: Array[(String val, NodeKind, String val)] = [
-      ("use x\nclass Foo\n", NdClassDef, "TkClass")
-      ("use x\nuse \"b\"\n", NdUse, "TkUse")
-      ("use x\n", NdModule, "TkEof")
+      ("use x\nclass Foo\n", NdClassDef, "class")
+      ("use x\nuse \"b\"\n", NdUse, "use")
+      ("use x\n", NdModule, "the end of the file")
     ]
     for (src, kept, found) in cases.values() do
       let tree = _ParseText(src)
       h.assert_eq[String](src, tree.reprint(), "reprint differs")
       h.assert_eq[USize](0, _Find.count(tree, NdError), "for: " + src)
-      h.assert_eq[USize](1, tree.diagnostics.size(), "for: " + src)
+      let diagnostics = _Diagnostics(src)
+      h.assert_eq[USize](1, diagnostics.size(), "for: " + src)
       h.assert_eq[USize](if kept is NdUse then 2 else 1 end,
         _Find.count(tree, kept), "for: " + src)
       try
-        h.assert_eq[String]("expected =, found " + found,
-          tree.diagnostics(0)?.message, "for: " + src)
+        h.assert_eq[String]("syntax error: expected =, found " + found,
+          diagnostics(0)?.cause.message(), "for: " + src)
+      else
+        h.fail("no diagnostic for: " + src)
       end
     end
 
@@ -201,7 +208,7 @@ class \nodoc\ iso _TestBumpAtTheEnd is UnitTest
     p.bump()
     p.bump()
     p.finish()
-    let tree = p.build()
+    (let tree, _) = p.build()
     h.assert_eq[String](
       "NdModule >TkId >TkWhitespace >TkEof", _Shape(tree))
     h.assert_eq[String]("x ", tree.reprint())
@@ -304,7 +311,7 @@ class \nodoc\ iso _TestMissingFieldTypeIsReported is UnitTest
     let src: String val = "class Foo\n  let x = 1\n"
     let tree = _ParseText(src)
     h.assert_eq[String](src, tree.reprint())
-    h.assert_ne[USize](0, tree.diagnostics.size(), "no diagnostic")
+    h.assert_ne[USize](0, _Diagnostics(src).size(), "no diagnostic")
 
 class \nodoc\ iso _TestExpressionShapes is UnitTest
   fun name(): String => "parse/grammar: expression shapes"
@@ -436,7 +443,7 @@ class \nodoc\ iso _TestJunkInABodyTerminates is UnitTest
     let src: String val = "class Foo\n  fun f() =>\n    ?? ]] => a\n"
     let tree = _ParseText(src)
     h.assert_eq[String](src, tree.reprint(), "reprint differs")
-    h.assert_ne[USize](0, tree.diagnostics.size(), "no diagnostic")
+    h.assert_ne[USize](0, _Diagnostics(src).size(), "no diagnostic")
     h.assert_eq[USize](1, _Find.count(tree, NdMethod),
       "the method was lost")
 
@@ -490,19 +497,18 @@ class \nodoc\ iso _TestNestingPastTheLimitIsRefused is UnitTest
     let ok = _ParseText(admitted)
     h.assert_eq[String](admitted, ok.reprint(),
       shape + ": admitted reprint differs")
-    h.assert_eq[USize](0, ok.diagnostics.size(),
+    h.assert_eq[USize](0, _Diagnostics(admitted).size(),
       shape + ": the guard fired under the limit")
 
     let bad = _ParseText(refused)
     h.assert_eq[String](refused, bad.reprint(),
       shape + ": refused reprint differs")
-    h.assert_ne[USize](0, bad.diagnostics.size(),
+    let diagnostics = _Diagnostics(refused)
+    h.assert_ne[USize](0, diagnostics.size(),
       shape + ": the guard did not fire past the limit")
     var found = false
-    for d in bad.diagnostics.values() do
-      if d.message.contains("grammar depth limit") then
-        found = true
-      end
+    for d in diagnostics.values() do
+      match d.cause | let _: NestingTooDeep => found = true end
     end
     h.assert_true(found,
       shape + ": no diagnostic names the depth limit")
@@ -511,7 +517,7 @@ class \nodoc\ iso _TestNestingPastTheLimitIsRefused is UnitTest
     let tree = _ParseText(refused)
     h.assert_eq[String](refused, tree.reprint(),
       shape + ": deep reprint differs")
-    h.assert_ne[USize](0, tree.diagnostics.size(),
+    h.assert_ne[USize](0, _Diagnostics(refused).size(),
       shape + ": the guard did not fire far past the limit")
 
 class \nodoc\ iso _TestRefusalRecoveryResumes is UnitTest
@@ -533,7 +539,7 @@ class \nodoc\ iso _TestRefusalRecoveryResumes is UnitTest
       end
     let tree = _ParseText(src)
     h.assert_eq[String](src, tree.reprint(), "reprint differs")
-    h.assert_ne[USize](0, tree.diagnostics.size(), "the guard did not fire")
+    h.assert_ne[USize](0, _Diagnostics(src).size(), "the guard did not fire")
     let entities = _Find.count(tree, NdClassDef)
     h.assert_eq[USize](2, entities,
       "the declaration after the refused region was lost")
