@@ -154,7 +154,7 @@ primitive _Object
       _TypeRule(p, "provided type")
       p.finish()
     end
-    _Members(p)
+    _Members(p, _InObject)
     p.close(opener, TkEnd, "object literal")
     p.finish()
     p.ascend()

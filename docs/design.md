@@ -1186,6 +1186,56 @@ the lexer produced (T7).
    with a `\r\n` leading newline, a whitespace line shorter than the
    indent, and a one-line literal; `"\q"` decodes to nothing.
 
+10. **Fidelity of the item grammar.** `_Module` is `_ModulePrefix`
+    (the module opened, the package docstring, `_UseSection`) then the
+    entity loop, so the two entry points of task 11 run one prefix
+    rule; `_UseSection` ends only at an entity keyword or the end and
+    takes anything else that is not `use` as an error item resynced to
+    `top_level`; `_Use` commits after its name and skips the rest of
+    the command to `top_level` when the `=` is absent; `_UseFFI` reads
+    `_FfiRetTypeArgs` and `_FfiParams`, which carry ponyc's annotation
+    slot after each type argument and each parameter and are otherwise
+    `_TypeArgs` and `_Params` under the same node kinds; `_Members(p,
+    ctx)` with `_InEntity` (ends at an entity keyword or the end;
+    resyncs to a member start or an entity, so a stray `end` or `use`
+    is one error item) and `_InObject` (ends at `end` as well), and a
+    method-seen flag that reports `expected method` at a field's
+    keyword and parses the field; `_ClassDef` opens the member list
+    unless an entity keyword or the end is next, so a `use` after an
+    entity is the list's error item and the members after it are kept
+    (`UsesFirst` in `TreeCheck` pins that no command follows an
+    entity). `_ClassDef`, `_Method`, `_Params` and `_TypeParams`
+    re-read against `parser.c:1130-1330`: no other optional was
+    missing. `_What` holds the two module-level nouns. Deviations from
+    the task text: `_ParseModule` stays as the primitive that builds
+    the parser and runs `_Module`, since task 11 reshapes the entry
+    points; the junk fixtures' `EXPECT` counts did not change, so no
+    re-baseline. The `skip_to` table in task 5's entry describes the
+    quarried rules; the item-level rows of the design's recovery
+    table (Discussion #13, section 5) are what the code keeps now.
+    Probes at `--pass=parse` are quoted in each item
+    test's docstring; ponyc's restart text is "after type, interface,
+    trait, primitive, class or actor definition" at every member-level
+    site, which is its `SEQ` description rather than the `SKIP` noun
+    the design named, and the noun hefermotor uses there stays "field
+    or method". Tests: `_test_items.pony` with a skeleton snapshot
+    (kinds, trivia left out) per item rule with its optionals present
+    and absent and an error form; the stray `end`, the `use` between
+    members and after the last member, the object literal's `end` and
+    its field-after-method with no `end`, the field after a method in
+    a trait, the `var` that is a local, the junk between commands, and
+    the FFI annotation lines of ponyc's `ffi-struct-by-value` test.
+    Fixtures: the six named in the task, each agreeing with ponyc on
+    position, and `syntax-field-after-method-in-object`, a `positions`
+    gap: in an object literal that has its `end`, ponyc reports the
+    literal unterminated at `object` where hefermotor reports the
+    field's keyword. The design's divergence 10 (junk between `use`
+    commands) turned out to be parity: ponyc's `use` restart check
+    skips to the next command and reads on, as hefermotor does; the
+    entry in `docs/ponyc-divergences.md` records that. `_Shape` takes
+    a `trivia` flag and `_Skeleton` is `_Shape` without it. Full
+    harness: 95 compared, 0 differ.
+
 ### The ponyc-bump procedure
 
 Every claim about ponyc in these documents cites commit `6a0bfa80b`;

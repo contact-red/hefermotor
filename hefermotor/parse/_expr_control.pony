@@ -285,7 +285,8 @@ primitive _Consume
 
 primitive _Annotated
   """
-  The `\\annotation\\` that may follow a control keyword.
+  The `\\annotation\\` that may follow a control keyword, an FFI
+  return type argument or an FFI parameter.
   """
   fun apply(p: _Parser ref) =>
     if p.at(TkBackslash) then

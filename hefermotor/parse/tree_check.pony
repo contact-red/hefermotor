@@ -137,6 +137,17 @@ primitive ErrorNoUseInSection
     """
     "ErrorNoUseInSection"
 
+primitive UsesFirst
+  """
+  No `NdUse` child of the module follows an `NdClassDef` child: a `use`
+  after the first entity is an error item, never a command.
+  """
+  fun name(): String =>
+    """
+    The invariant's name, as a violation prints it.
+    """
+    "UsesFirst"
+
 primitive DiagnosticInFile
   """
   Every diagnostic's span ends at or before the file's size, and every
@@ -172,6 +183,7 @@ type TreeInvariant is
   | ErrorNoEntity
   | ErrorNoMemberStart
   | ErrorNoUseInSection
+  | UsesFirst
   | DiagnosticInFile
   | DiagnosticsOrdered )
   """
@@ -292,6 +304,11 @@ primitive TreeCheck
         if size == 0 then out.push(TreeViolation(SubtreeSizes, i)) end
         try errors(errors.size() - 1)?.node() end
         if k is NdClassDef then entity_seen = true end
+        if (k is NdUse) and entity_seen and
+          (try kinds(kinds.size() - 1)? is NdModule else false end)
+        then
+          out.push(TreeViolation(UsesFirst, i))
+        end
         if k is NdError then
           let parent = try kinds(kinds.size() - 1)? else NdModule end
           errors.push(_OpenError(i, parent, entity_seen))

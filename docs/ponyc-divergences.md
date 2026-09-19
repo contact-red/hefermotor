@@ -51,11 +51,37 @@ Every other entry cites ponyc at commit `6a0bfa80b`.
   position (`package.c:1075`) and then "can't load package" at the `use`;
   hefermotor emits one diagnostic, `CantLoadPackage`, over the whole
   `use` declaration.
-- **A `use` after a type definition is a syntax error.** ponyc's module
-  rule takes the package docstring, then `use` commands, then type
-  definitions (`parser.c:1310-1319`). The parser quarried from pony-lsp2
-  accepts a `use` after a type silently (`_Module` in its `grammar.pony`);
-  M1 changes that rule.
+- **A `use` after a type definition is a syntax error, and the members
+  after it are kept.** ponyc's module rule takes the package docstring,
+  then `use` commands, then type definitions (`parser.c:1310-1319`), and
+  a `use` after the first entity fails its `class_def` restart check at
+  the keyword, after which ponyc skips to the next entity keyword and
+  reads on. hefermotor reports at the same keyword and makes the
+  command an error item of the enclosing entity's member list, never a
+  command, so the members after it are still that entity's (`class
+  A\nuse "b"\n  fun g() => 1` keeps `g` as A's member); `TreeCheck`'s
+  `UsesFirst` pins that no command follows an entity.
+- **Junk between `use` commands is reported and skipped on both
+  sides.** Not a divergence, recorded here because the M1 design
+  listed it as one: ponyc's `use` restart check reports the junk and
+  skips to the next `use` or entity keyword (`parserapi.c:562-611`),
+  and its `SEQ(use)` reads the command after it; hefermotor reports
+  the junk at the same position, wraps it as the use section's error
+  item, and reads on, so `use "a"\njunk\nuse "b"\nclass C` has two
+  commands on both sides. The message text differs as the message
+  entry says.
+- **A field after a method is reported and parsed.** ponyc's `members`
+  is fields then methods (`parser.c:1211-1216`). In an entity a field
+  after a method fails the `class_def` restart check at its keyword;
+  ponyc skips the rest of the entity and reads the next one, and
+  hefermotor reports `expected method` at the same keyword and parses
+  the field. In an object literal there is no restart check: ponyc's
+  `members` stops at the field and the `TERMINATE` for `end` fails
+  there, so ponyc reports the literal unterminated at `object` with
+  the keyword as its `Info:` frame, where hefermotor reports the
+  keyword and finds the `end`; the same family as "Junk inside a
+  closed construct", and the fixture of that shape carries `KNOWN_GAP
+  positions`.
 - **Package display names can differ from ponyc's.** ponyc names a package
   by the locator that first reached it and loads dependencies depth-first
   from the scope pass (`scope.c:364-366`); hefermotor discovers
