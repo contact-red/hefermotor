@@ -1,0 +1,60 @@
+### tools/syntax/fixtures/broken.pony
+NdModule 0+82
+  NdUse 0+7
+    TkUse 0+3 "use"
+    TkWhitespace 3+1 " "
+    TkString 4+3 "\"a\""
+  TkWhitespace 7+1 "\n"
+  NdClassDef 8+74
+    TkClass 8+5 "class"
+    TkWhitespace 13+1 " "
+    TkId 14+1 "A"
+    TkWhitespace 15+3 "\n  "
+    NdMembers 18+64
+      NdMethod 18+36
+        TkFun 18+3 "fun"
+        TkWhitespace 21+1 " "
+        TkId 22+1 "f"
+        TkLparen 23+1 "("
+        TkRparen 24+1 ")"
+        TkColon 25+1 ":"
+        TkWhitespace 26+1 " "
+        NdNominal 27+2
+          TkId 27+2 "U8"
+        TkWhitespace 29+1 " "
+        TkDblarrow 30+2 "=>"
+        TkWhitespace 32+1 " "
+        NdSeq 33+21
+          NdGrouped 33+21
+            TkLparen 33+1 "("
+            NdSeq 34+20
+              NdAssign 34+20
+                NdBinOp 34+10
+                  TkInt 34+1 "1"
+                  TkWhitespace 35+1 " "
+                  TkPlus 36+1 "+"
+                  TkWhitespace 37+2 "\n\t"
+                  NdLocal 39+5
+                    TkLet 39+3 "let"
+                    TkWhitespace 42+1 " "
+                    TkId 43+1 "s"
+                TkWhitespace 44+1 " "
+                TkAssign 45+1 "="
+                TkWhitespace 46+1 " "
+                TkString 47+7 "\"caf\xc3\xa9\""
+      TkWhitespace 54+3 "\n  "
+      NdMethod 57+25
+        TkFun 57+3 "fun"
+        TkWhitespace 60+1 " "
+        TkId 61+1 "g"
+        TkLparen 62+1 "("
+        TkRparen 63+1 ")"
+        TkWhitespace 64+1 " "
+        TkDblarrow 65+2 "=>"
+        TkWhitespace 67+1 " "
+        NdSeq 68+14
+          NdError 68+14
+            TkLexError 68+14 "\"unterminated\n"
+  TkEof 82+0 ""
+parse/expected 57+0: syntax error: expected ), found fun
+parse/lex 68+14: Literal doesn't terminate

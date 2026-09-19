@@ -78,3 +78,7 @@ jobs:
         run: |
           if [ "$(ulimit -s)" = unlimited ]; then ulimit -s 8192; fi
           make differential
+      - name: make corpus
+        run: |
+          if [ "$(ulimit -s)" = unlimited ]; then ulimit -s 8192; fi
+          make corpus

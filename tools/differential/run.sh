@@ -46,6 +46,19 @@
 # tools accept is a `count` difference unless its EXPECT is 0, so a
 # fixture meant to be broken cannot pass by being valid.
 #
+# A fixture whose name starts `sample-` has no EXPECT and no KNOWN_GAP
+# and is scored at `--pass=parse` on the verdict alone, where
+# hefermotor's verdict is whether its document holds a `parse/`
+# diagnostic, since ponyc's parse pass resolves no `use` and an edited
+# or missing locator would otherwise be a discovery rejection ponyc
+# never gives. `tools/syntax --mutants --emit` writes such cases from
+# the stdlib's mutants and `tools/corpus/extract_corpus.py` from
+# ponyc's unit-test programs; two committed ones pin the rule. When both
+# reject, whether every position ponyc reported is one hefermotor
+# reported, and whether the two lowest positions agree, are summed into
+# `sample positions P of Q` and `sample first position A of B` on the
+# summary line and never gated.
+#
 # The sentinel case, `cases/sentinel`, runs first: ponyc's `builtin`
 # path from its `Building` line must equal hefermotor's, and ponyc must
 # print a group dump for it, or the run stops before any case is scored.
@@ -72,6 +85,9 @@ crashed=0
 not_compared=0
 fp_agree=0
 fp_total=0
+sp_agree=0
+sp_total=0
+sfp_agree=0
 
 # run_ponyc <cwd> <target> <verbosity> <pass> <out> <err>: ponyc's exit
 # code.
@@ -106,6 +122,20 @@ verdict_hefermotor() {
   case "$1" in
     0) is_document "$2" && echo accept || echo "crash(json)" ;;
     1) is_document "$2" && echo reject || echo "crash(json)" ;;
+    2) echo abort ;;
+    *) echo "crash($1)" ;;
+  esac
+}
+
+# verdict_sample <code> <document>: hefermotor's verdict on a sample,
+# from its `parse/` diagnostics rather than its exit code.
+verdict_sample() {
+  case "$1" in
+    0|1)
+      if ! is_document "$2"; then echo "crash(json)"
+      elif grep -q '"code":"parse/' "$2"; then echo reject
+      else echo accept
+      fi ;;
     2) echo abort ;;
     *) echo "crash($1)" ;;
   esac
@@ -208,19 +238,24 @@ is_timeout() {
 
 # score_case <working dir> <target> <name> <known gap classes or no>
 # <kind>: `kind` is `syntax` for a fixture scored at `--pass=parse` on
-# the verdict and positions, `program` for one scored at `--pass=scope`
-# on the verdict, packages and groups.
+# the verdict and positions, `sample` for one scored at `--pass=parse`
+# on the verdict alone, `program` for one scored at
+# `--pass=scope` on the verdict, packages and groups.
 score_case() {
   local dir=$1 target=$2 name=$3 gap=$4 kind=$5
   compared=$((compared + 1))
   local pv hv code missing n want pass=scope
-  [ "$kind" = syntax ] && pass=parse
+  [ "$kind" = program ] || pass=parse
   run_ponyc "$dir" "$target" 2 "$pass" "$tmp/p.out" "$tmp/p.err"
   code=$?
   pv=$(verdict_ponyc "$code")
   run_hefermotor "$dir" "$target" "$tmp/h.json" "$tmp/h.err"
   code=$?
-  hv=$(verdict_hefermotor "$code" "$tmp/h.json")
+  if [ "$kind" = sample ]; then
+    hv=$(verdict_sample "$code" "$tmp/h.json")
+  else
+    hv=$(verdict_hefermotor "$code" "$tmp/h.json")
+  fi
   local detail=""
   local outcome=agree
   case "$hv" in
@@ -268,6 +303,31 @@ score_case() {
       fp_agree=$((fp_agree + 1))
     fi
     [ "$outcome" = agree ] && detail="verdict and $n position(s)"
+  fi
+  if [ "$outcome" = agree ] && [ "$pv" = reject ] && [ "$kind" = sample ]
+  then
+    positions_ponyc "$tmp/p.err" > "$tmp/p.pos"
+    if ! positions_hefermotor "$tmp/h.json" "$tmp/h.pos"; then
+      echo "positions.py failed on $name" >&2
+      exit 2
+    fi
+    sp_total=$((sp_total + 1))
+    missing=$(LC_ALL=C comm -23 "$tmp/p.pos" "$tmp/h.pos" | tr '\n' ' ')
+    if [ -z "$missing" ]; then
+      sp_agree=$((sp_agree + 1))
+      detail="verdict and positions"
+    else
+      detail="verdict; positions ponyc only: $missing"
+    fi
+    if [ "$(lowest_position "$tmp/p.pos")" = \
+      "$(lowest_position "$tmp/h.pos")" ]
+    then
+      sfp_agree=$((sfp_agree + 1))
+    fi
+  fi
+  if [ "$outcome" = agree ] && [ "$pv" = accept ] && [ "$kind" = sample ]
+  then
+    detail="both accept"
   fi
   if [ "$outcome" = agree ] && [ "$pv" = accept ] && [ "$kind" = syntax ]
   then
@@ -390,6 +450,12 @@ score_fixture() {
         echo "$c/EXPECT must hold one integer" >&2
         exit 2
       fi ;;
+    sample-*)
+      kind=sample
+      if [ -e "$c/EXPECT" ] || [ -e "$c/KNOWN_GAP" ]; then
+        echo "$c: a sample carries no EXPECT or KNOWN_GAP" >&2
+        exit 2
+      fi ;;
   esac
   gap=no
   if [ -e "$c/KNOWN_GAP" ]; then
@@ -422,5 +488,7 @@ fi
 echo "differential: $compared compared, $agreed agree, $differed differ," \
   "$known known gaps, $closed known gaps closed, $crashed crashed," \
   "$not_compared groups not compared," \
-  "first-position agree $fp_agree of $fp_total"
+  "first-position agree $fp_agree of $fp_total," \
+  "sample positions $sp_agree of $sp_total," \
+  "sample first position $sfp_agree of $sp_total"
 if [ "$differed" != 0 ] || [ "$crashed" != 0 ]; then exit 1; fi

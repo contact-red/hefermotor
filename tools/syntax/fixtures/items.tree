@@ -1,0 +1,158 @@
+### tools/syntax/fixtures/items.pony
+NdModule 0+306
+  TkString 0+28 "\"\"\"\nA package docstring.\n\"\"\""
+  TkWhitespace 28+1 "\n"
+  NdUse 29+26
+    TkUse 29+3 "use"
+    TkWhitespace 32+1 " "
+    TkString 33+13 "\"collections\""
+    TkWhitespace 46+1 " "
+    TkIf 47+2 "if"
+    TkWhitespace 49+1 " "
+    NdRef 50+5
+      TkId 50+5 "linux"
+  TkWhitespace 55+1 "\n"
+  NdUse 56+38
+    TkUse 56+3 "use"
+    TkWhitespace 59+1 " "
+    NdUseFFI 60+34
+      TkAt 60+1 "@"
+      TkId 61+6 "strlen"
+      NdTypeArgs 67+7
+        TkLsquare 67+1 "["
+        NdNominal 68+5
+          TkId 68+5 "USize"
+        TkRsquare 73+1 "]"
+      TkLparen 74+1 "("
+      NdParams 75+18
+        NdParam 75+18
+          TkId 75+1 "s"
+          TkColon 76+1 ":"
+          TkWhitespace 77+1 " "
+          NdNominal 78+15
+            TkId 78+7 "Pointer"
+            NdTypeArgs 85+4
+              TkLsquare 85+1 "["
+              NdNominal 86+2
+                TkId 86+2 "U8"
+              TkRsquare 88+1 "]"
+            TkWhitespace 89+1 " "
+            TkTag 90+3 "tag"
+      TkRparen 93+1 ")"
+  TkWhitespace 94+2 "\n\n"
+  NdClassDef 96+97
+    TkClass 96+5 "class"
+    TkWhitespace 101+1 " "
+    NdAnnotations 102+8
+      TkBackslash 102+1 "\\"
+      TkId 103+6 "packed"
+      TkBackslash 109+1 "\\"
+    TkWhitespace 110+1 " "
+    TkId 111+5 "Point"
+    NdTypeParams 116+12
+      TkLsquare 116+1 "["
+      NdTypeParam 117+10
+        TkId 117+1 "A"
+        TkColon 118+1 ":"
+        TkWhitespace 119+1 " "
+        NdNominal 120+7
+          TkId 120+3 "Any"
+          TkWhitespace 123+1 " "
+          TkVal 124+3 "val"
+      TkRsquare 127+1 "]"
+    TkWhitespace 128+3 "\n  "
+    NdMembers 131+62
+      NdField 131+14
+        TkVar 131+3 "var"
+        TkWhitespace 134+1 " "
+        TkId 135+1 "x"
+        TkColon 136+1 ":"
+        TkWhitespace 137+1 " "
+        NdNominal 138+3
+          TkId 138+3 "F64"
+        TkWhitespace 141+1 " "
+        TkAssign 142+1 "="
+        TkWhitespace 143+1 " "
+        TkInt 144+1 "0"
+      TkWhitespace 145+4 "\n\n  "
+      NdMethod 149+44
+        TkFun 149+3 "fun"
+        TkWhitespace 152+1 " "
+        TkRef 153+3 "ref"
+        TkWhitespace 156+1 " "
+        TkId 157+4 "move"
+        TkLparen 161+1 "("
+        NdParams 162+7
+          NdParam 162+7
+            TkId 162+2 "dx"
+            TkColon 164+1 ":"
+            TkWhitespace 165+1 " "
+            NdNominal 166+3
+              TkId 166+3 "F64"
+        TkRparen 169+1 ")"
+        TkColon 170+1 ":"
+        TkWhitespace 171+1 " "
+        NdNominal 172+3
+          TkId 172+3 "F64"
+        TkWhitespace 175+1 " "
+        TkDblarrow 176+2 "=>"
+        TkWhitespace 178+5 "\n    "
+        NdSeq 183+10
+          NdAssign 183+10
+            NdRef 183+1
+              TkId 183+1 "x"
+            TkWhitespace 184+1 " "
+            TkAssign 185+1 "="
+            TkWhitespace 186+1 " "
+            NdBinOp 187+6
+              NdRef 187+1
+                TkId 187+1 "x"
+              TkWhitespace 188+1 " "
+              TkPlus 189+1 "+"
+              TkWhitespace 190+1 " "
+              NdRef 191+2
+                TkId 191+2 "dx"
+  TkWhitespace 193+2 "\n\n"
+  NdClassDef 195+92
+    TkActor 195+5 "actor"
+    TkWhitespace 200+1 " "
+    TkId 201+4 "Main"
+    TkWhitespace 205+3 "\n  "
+    NdMembers 208+79
+      NdMethod 208+79
+        TkNew 208+3 "new"
+        TkWhitespace 211+1 " "
+        TkId 212+6 "create"
+        TkLparen 218+1 "("
+        NdParams 219+8
+          NdParam 219+8
+            TkId 219+3 "env"
+            TkColon 222+1 ":"
+            TkWhitespace 223+1 " "
+            NdNominal 224+3
+              TkId 224+3 "Env"
+        TkRparen 227+1 ")"
+        TkWhitespace 228+1 " "
+        TkDblarrow 229+2 "=>"
+        TkWhitespace 231+5 "\n    "
+        TkNestedComment 236+22 "/* a nested comment */"
+        TkWhitespace 258+5 "\n    "
+        NdSeq 263+24
+          NdCall 263+24
+            NdDot 263+13
+              NdDot 263+7
+                NdRef 263+3
+                  TkId 263+3 "env"
+                TkDot 266+1 "."
+                TkId 267+3 "out"
+              TkDot 270+1 "."
+              TkId 271+5 "print"
+            NdArgs 276+11
+              TkLparen 276+1 "("
+              NdSeq 277+9
+                TkString 277+9 "\"h\\tello\""
+              TkRparen 286+1 ")"
+  TkWhitespace 287+1 " "
+  TkLineComment 288+17 "// a line comment"
+  TkWhitespace 305+1 "\n"
+  TkEof 306+0 ""

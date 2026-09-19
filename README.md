@@ -29,8 +29,24 @@ decision log.
   every stdlib file beside the `ponyc` on `PATH`, linking
   `tools/agreement/ponyc_dump.c` against the checkout's
   `libponyc-standalone.a`; needs gcc
+* `make corpus` runs the parser over every stdlib file beside the
+  `ponyc` on `PATH` and 48 single-edit mutants of each, checking every
+  tree's invariants, then compares a sample of the mutants with that
+  `ponyc`'s verdict at `--pass=parse`, compares the token digests with
+  `tools/syntax/token_digest/`, and times `hefermotor check` over the
+  stdlib; with `PONYC_SRC=<ponyc checkout>` the checkout's `examples/`,
+  `test/full-program-tests/` and `tools/` are checked too
+* `make corpus-cases PONYC_SRC=<ponyc checkout>` extracts the programs
+  in the checkout's `test/libponyc/*.cc` into `build/corpus/` and
+  compares the parser's verdict on each with the `ponyc` on `PATH` at
+  `--pass=parse`
 * `make token-digest` writes one digest per stdlib package of its token
   kinds to `tools/syntax/token_digest/`
+* `make syntax` builds `build/release/syntax`, whose `--tree` prints a
+  file's parse tree and diagnostics, `--check` parses files and their
+  mutants and checks every tree's invariants, and `--mutants --emit`
+  writes a sample of the mutants as fixture packages;
+  `tools/syntax/main.pony` has the details
 
 ## Usage
 

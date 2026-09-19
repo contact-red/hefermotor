@@ -1350,6 +1350,97 @@ the lexer produced (T7).
     section resyncing at entities failed the token, byte and
     use-section properties.
 
+13. **`tools/syntax` and `make corpus`.** The tool gains `--tree`
+    (the elements in pre-order with kind, offset, width and a leaf's
+    quoted text, then the diagnostics), `--check` (one actor per file,
+    one behaviour per parse so that one tree is live per actor; the
+    file and its 48 mutants through `TreeCheck` and the two `use`
+    readers; violations in file order, the parameters and the
+    diagnostic-count distribution on the summary lines) and
+    `--mutants [--emit <dir> --every N]`, and takes a directory for
+    every `.pony` file under it. The mutants are the design's: at eight
+    cut points at k/9 of the file, a truncation, a four-byte deletion
+    and an insertion of `"`, `(`, `end` or `/*`, numbered by operation
+    then cut point, so `--every 101`, prime to 48, samples every edit.
+    `tools/syntax/run.sh` (`make corpus`, in the differential CI job)
+    runs `--check` over the packages beside the ponyc on `PATH` and,
+    with `PONYC_SRC`, the checkout's `examples/`,
+    `test/full-program-tests/` and `tools/`, and fails unless the
+    summary line counts every `.pony` file `find` sees, since a run
+    whose actors never all report exits 0 without one; emits the
+    sample and scores it with `tools/differential/run.sh`, which gains
+    the `sample-` kind: the verdict at `--pass=parse`, gated, where
+    hefermotor's verdict is whether the document holds a `parse/`
+    diagnostic (ponyc's parse pass resolves no `use`, so an edited
+    locator must not count), and two rates summed on the summary
+    line and recorded, how often every ponyc position is a hefermotor
+    position and how often the lowest positions agree; fails unless
+    at least one sampled mutant was rejected, since a sample no edit
+    reached agrees trivially; regenerates the token digests through
+    `tools/syntax/token_digest.sh` and diffs them; and times
+    `hefermotor check stdlib`. Under `make test`: two fixtures under
+    `tools/syntax/fixtures/` (excluded from the import check) pin
+    `--tree`'s output, one well formed and one with a `(` never
+    closed, a tab, a non-ASCII byte and an unterminated string; every
+    fifth of their 96 mutants is committed under `fixtures/mutants/`
+    and diffed against a fresh `--emit`, pinning the six operations,
+    the cut arithmetic, the labels and the stride; and two `sample-`
+    cases under `tools/differential/cases/` pin the kind's verdict
+    rule, one with an unresolvable `use` that scores `both accept`
+    and one parse error. Measured on the stdlib slot (465 files,
+    release): 22,320 mutants, no violation and no `use` reader
+    disagreement; 5,540,028 lines parsed in 8.1–8.3 s of CPU on one
+    thread (665k–684k lines/s/core over two runs, `TreeCheck` and the
+    prefix parse included) and 0.8 s real on eight (14.8 s of CPU, 188 MB max RSS
+    against 50 MB on one); the distribution over the mutants was
+    0: 10,844, 1: 6,446, 2: 1,680, 3: 1,042, 4: 517, 5–9: 880,
+    10–99: 870, 100–499: 38, 500+: 3 (the budget reached); the zero
+    bucket is mostly edits inside docstrings and comments, with some
+    deletions that leave valid code. The 221-mutant sample agreed
+    with ponyc on every verdict; every ponyc position was a
+    hefermotor position on all 120 rejections, and the lowest
+    positions agreed on 84 of 120, the other 36 all the opener
+    record, T2's cost (an `end` or `(` inserted, or a truncation,
+    leaving a construct unclosed: ponyc reports where it stopped,
+    hefermotor there and at the opener). The checkout's `examples/`
+    (117 files), `test/full-program-tests/` (310) and `tools/` (376)
+    passed `--check` with one file reporting, `pony_compiler`'s
+    `compile_errors_04`, which is broken on purpose. T1's working
+    answer is taken as far as it has a consumer:
+    `tools/corpus/extract_corpus.py` (from pony-lsp2, the
+    fixture-package writing dropped, the C escapes decoded in one
+    pass, comments outside string literals dropped before the scan,
+    every `TEST_ERRORS` variant read) writes the unit-test programs
+    of `test/libponyc/*.cc` as `sample-` cases into `build/corpus/`
+    under `make corpus-cases PONYC_SRC=<checkout>`, never in CI, and
+    the differential harness scores them against the ponyc on
+    `PATH`; `pass_reach.py` is not quarried, since with the live
+    ponyc as the oracle the pass each case reaches has no consumer
+    before the semantic milestones. The 1,553 programs extracted from
+    the pinned checkout (273 blocks skipped as not one program with
+    one verdict) agreed with ponyc on every parse verdict; 28 are
+    parse rejections (the suites' other rejections are `syntax.c`'s
+    and later passes'), every ponyc position among them was a
+    hefermotor position, and the lowest positions agreed on 27, the
+    one exception again the opener record (`class \0a\ C`: ponyc
+    stops at the lexer's refusal, hefermotor also records the
+    annotations unterminated at `\`). `make corpus` takes
+    a minute after the release builds (59 s): the sample's 221 ponyc
+    runs are most of it, so `CORPUS_EVERY` sets its wall time;
+    `run.sh` runs `--check` on one scheduler thread so the
+    lines/s/core it prints is one core's rate; its `hefermotor check
+    stdlib` was 0.48 s real in that run and 0.23–0.52 s over five
+    more. Deviations from the sketch: a `--check` actor parses one
+    tree per behaviour rather than its file and every mutant in one,
+    so the garbage held between collections is one tree and not
+    forty-nine; `--check` prints the mutation parameters as well as
+    `--mutants`, since its summary is the one `make corpus` shows;
+    the digest loop moved from the Makefile to
+    `tools/syntax/token_digest.sh` so that `make corpus` and `make
+    token-digest` run one loop; and the sketch's sample "has no
+    marker and no README", which holds of the emitted cases, while
+    the two committed ones carry a README like every other fixture.
+
 ### The ponyc-bump procedure
 
 Every claim about ponyc in these documents cites commit `6a0bfa80b`;
@@ -1370,10 +1461,12 @@ all of the following, so that the pin is one commit throughout:
    removal, so the reviewer of the diff must find those. `_lexer.pony`
    mirrors `lexer.c`'s scanning rules by hand, so the diff of `lexer.c`
    between the two commits is reviewed as well.
-4. Run `make test`, `make determinism` and `make differential` against
-   the ponyc built from the new commit; a differential case that changes
-   class moves between `KNOWN_GAP` and the ordinary cases in the same
-   change, with the divergence recorded in `docs/ponyc-divergences.md`.
+4. Run `make test`, `make determinism`, `make differential` and `make
+   corpus` against the ponyc built from the new commit, and `make
+   corpus-cases PONYC_SRC=<checkout>` for its unit-test programs; a
+   differential case that changes class moves between `KNOWN_GAP` and
+   the ordinary cases in the same change, with the divergence recorded
+   in `docs/ponyc-divergences.md`.
 
 ## Rules and notes with no other home
 
