@@ -190,13 +190,7 @@ primitive _Term
     end
     let kind = p.current()
     match kind
-    | TkIf =>
-      // In a case pattern an `if` is the case's guard, not a conditional.
-      if mode is _ExprCase then
-        _Pattern(p, mode, what)
-      else
-        _Cond(p)
-      end
+    | TkIf => _Cond(p)
     | TkIfdef => _IfDef(p)
     | TkIftypeSet => _IfTypeSet(p)
     | TkMatch => _Match(p)
