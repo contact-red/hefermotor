@@ -8,10 +8,13 @@ class _TokenStream
 
   Error-tolerant: no input fails to produce a stream. Bytes that cannot be
   interpreted become `TkLexError` tokens and scanning continues: a byte
-  that starts no token is one `TkLexError` of one byte, and a literal or
-  comment that does not terminate is one to the end of the source. Each
-  refusal is also in the failure list, in token order, which
-  `next_failure` and `take_failure` read as a cursor.
+  that starts no token is one `TkLexError` of one byte, a literal or
+  comment that does not terminate is one to the end of the source, and
+  a refused number, character literal or triple-quoted string is one
+  over the bytes ponyc's lexer read before refusing it. Each refusal is
+  also in the failure list, in token order, with the escapes refused
+  inside a literal that kept its kind; `next_failure` and
+  `take_failure` read the list as a cursor.
 
   `token(i)` scans forward until token `i` exists and returns it; at and
   past the end it is `(TkEof, 0)`. There is no size, so nothing can force
@@ -199,7 +202,7 @@ class _TokenStream
     end
     (j, depth == 0)
 
-  fun _token(from: USize, n: USize, after_newline: Bool)
+  fun ref _token(from: USize, n: USize, after_newline: Bool)
     : (TokenKind, USize, (LexFailure | None))
   =>
     """
@@ -215,7 +218,7 @@ class _TokenStream
     elseif c == '#' then
       _hash(from, n)
     elseif _is_digit(c) then
-      _number(from, n)
+      _number(from)
     elseif _is_ident_start(c) then
       _identifier(from, n)
     else
@@ -269,111 +272,152 @@ class _TokenStream
     end
     (TkLexError, from + 1, UnrecognizedCharacter(_byte(from)))
 
-  fun _number(from: USize, n: USize): (TokenKind, USize, None) =>
+  fun ref _fail_inside(failure: LexFailure, from: USize, to: USize) =>
     """
-    An integer or a float. A `.` begins a fraction only when a digit
-    follows it, so that `1.string()` is an integer, a dot and a method
-    name rather than a malformed float.
+    Record a refusal inside the token being scanned, which keeps its
+    kind: an escape in a literal.
     """
-    var j = from
-    var kind: TokenKind = TkInt
+    _failures.push((_tokens.size(), failure, from, to - from))
 
+  fun _number(from: USize): (TokenKind, USize, (LexFailure | None)) =>
+    """
+    An integer or a float, ponyc's `number`, `lex_integer` and `real`:
+    a refused literal ends where ponyc's lexer stopped reading it, and
+    the bytes after that are the next token's.
+
+    A `.` begins a fraction only when a digit follows it, so that
+    `1.string()` is an integer, a dot and a method name; an `e` after
+    the digits always begins an exponent, so `1e` is refused as ponyc
+    refuses it.
+    """
     if (_byte(from) == '0') and
       ((_byte(from + 1) == 'x') or (_byte(from + 1) == 'X'))
     then
-      j = _hex_digits(from + 2, n)
-      return (TkInt, j, None)
+      return _integer_token(from + 2, 16, HexadecimalNumber, false)
     end
-
     if (_byte(from) == '0') and
       ((_byte(from + 1) == 'b') or (_byte(from + 1) == 'B'))
     then
-      j = _binary_digits(from + 2, n)
-      return (TkInt, j, None)
+      return _integer_token(from + 2, 2, BinaryNumber, false)
     end
 
-    j = _decimal_digits(from, n)
+    (let after_digits, let failure) = _integer(from, 10, DecimalNumber, true)
+    match failure
+    | let f: LexFailure => return (TkLexError, after_digits, f)
+    end
+    var j = after_digits
+    var kind: TokenKind = TkInt
 
-    if (_byte(j) == '.') and _is_digit(_byte(j + 1)) then
+    if _byte(j) == '.' then
+      if not _is_digit(_byte(j + 1)) then
+        return (TkInt, j, None)
+      end
       kind = TkFloat
-      j = _decimal_digits(j + 1, n)
+      (let after_mantissa, let mantissa) =
+        _integer(j + 1, 10, RealMantissa, true)
+      j = after_mantissa
+      match mantissa
+      | let f: LexFailure => return (TkLexError, j, f)
+      end
     end
 
     if (_byte(j) == 'e') or (_byte(j) == 'E') then
-      var k = j + 1
-      if (_byte(k) == '+') or (_byte(k) == '-') then
-        k = k + 1
+      kind = TkFloat
+      j = j + 1
+      if (_byte(j) == '+') or (_byte(j) == '-') then
+        j = j + 1
       end
-      if _is_digit(_byte(k)) then
-        kind = TkFloat
-        j = _decimal_digits(k, n)
+      (let after_exponent, let exponent) =
+        _integer(j, 10, RealExponent, false)
+      j = after_exponent
+      match exponent
+      | let f: LexFailure => return (TkLexError, j, f)
       end
     end
 
     (kind, j, None)
 
-  fun _decimal_digits(from: USize, n: USize): USize =>
+  fun _integer_token(from: USize, base: U128, context: NumberContext,
+    end_on_e: Bool): (TokenKind, USize, (LexFailure | None))
+  =>
+    (let j, let failure) = _integer(from, base, context, end_on_e)
+    match failure
+    | let f: LexFailure => (TkLexError, j, f)
+    | None => (TkInt, j, None)
+    end
+
+  fun _integer(from: USize, base: U128, context: NumberContext,
+    end_on_e: Bool): (USize, (LexFailure | None))
+  =>
+    """
+    ponyc's `lex_integer`: digits of `base` with single underscores
+    between them, accumulated as a `U128` so that overflow is refused
+    where ponyc refuses it. Returns the offset of the first byte ponyc's
+    lexer would not have consumed, and the refusal when there is one.
+    """
     var j = from
-    while (j < n) and (_is_digit(_byte(j)) or (_byte(j) == '_')) do
+    var value: U128 = 0
+    var digits: USize = 0
+    var previous_underscore = false
+    while true do
+      let c = _byte(j)
+      if c == '_' then
+        if previous_underscore then
+          return (j, DuplicateUnderscore(context))
+        end
+        previous_underscore = true
+        j = j + 1
+        continue
+      end
+      if end_on_e and ((c == 'e') or (c == 'E')) then
+        break
+      end
+      let digit: U128 =
+        if _is_digit(c) then (c - '0').u128()
+        elseif (c >= 'a') and (c <= 'z') then ((c - 'a') + 10).u128()
+        elseif (c >= 'A') and (c <= 'Z') then ((c - 'A') + 10).u128()
+        else break
+        end
+      if digit >= base then
+        return (j, InvalidDigit(context, c))
+      end
+      (let scaled, let overflow) = value.mulc(base)
+      (let next, let carried) = scaled.addc(digit)
+      if overflow or carried then
+        return (j, NumericOverflow)
+      end
+      value = next
+      previous_underscore = false
       j = j + 1
+      digits = digits + 1
     end
-    j
-
-  fun _hex_digits(from: USize, n: USize): USize =>
-    var j = from
-    while j < n do
-      let c = _byte(j)
-      if _is_digit(c) or ((c >= 'a') and (c <= 'f')) or
-        ((c >= 'A') and (c <= 'F')) or (c == '_')
-      then
-        j = j + 1
-      else
-        break
-      end
+    if digits == 0 then
+      return (j, NoDigits(context))
     end
-    j
-
-  fun _binary_digits(from: USize, n: USize): USize =>
-    var j = from
-    while j < n do
-      let c = _byte(j)
-      if (c == '0') or (c == '1') or (c == '_') then
-        j = j + 1
-      else
-        break
-      end
+    if previous_underscore then
+      return (j, TrailingUnderscore(context))
     end
-    j
+    (j, None)
 
-  fun _string(from: USize, n: USize)
-    : (TokenKind, USize, (UnterminatedLiteral | None))
+  fun ref _string(from: USize, n: USize)
+    : (TokenKind, USize, (LexFailure | None))
   =>
     """
     A string literal, either triple-quoted or single-quoted. An
     unterminated one is a `TkLexError` covering what remains, which is
-    ponyc's verdict; it runs to the end of the source rather than failing.
+    ponyc's verdict; it runs to the end of the source rather than
+    failing. A bad escape is recorded where it sits and the literal
+    keeps its kind.
     """
     if source.at("\"\"\"", from.isize()) then
-      var j = from + 3
-      while j < n do
-        if source.at("\"\"\"", j.isize()) then
-          j = j + 3
-          // A run of more than three quotes closes at the last of them.
-          while (j < n) and (_byte(j) == '"') do
-            j = j + 1
-          end
-          return (TkString, j, None)
-        end
-        j = j + 1
-      end
-      return (TkLexError, n, UnterminatedLiteral)
+      return _triple_string(from, n)
     end
 
     var j = from + 1
     while j < n do
       let c = _byte(j)
       if c == '\\' then
-        j = j + 2
+        j = _escape(j, true, true)
       elseif c == '"' then
         return (TkString, j + 1, None)
       else
@@ -385,24 +429,128 @@ class _TokenStream
     end
     (TkLexError, n, UnterminatedLiteral)
 
-  fun _character(from: USize, n: USize)
-    : (TokenKind, USize, (UnterminatedLiteral | None))
+  fun _triple_string(from: USize, n: USize)
+    : (TokenKind, USize, (LexFailure | None))
   =>
     """
-    A character literal, which ponyc lexes as an integer.
+    ponyc's `triple_string`: no escapes; a literal of more than one
+    line may have nothing but whitespace after the opening quotes on
+    their line.
+    """
+    var j = from + 3
+    var non_space_on_first_line = false
+    var first_line = true
+    while j < n do
+      if source.at("\"\"\"", j.isize()) then
+        j = j + 3
+        // A run of more than three quotes closes at the last of them.
+        while (j < n) and (_byte(j) == '"') do
+          j = j + 1
+        end
+        if (not first_line) and non_space_on_first_line then
+          return (TkLexError, j, TripleQuoteNotBelowOpener)
+        end
+        return (TkString, j, None)
+      end
+      let c = _byte(j)
+      if c == '\n' then
+        first_line = false
+      elseif first_line and (not _is_c_space(c)) then
+        non_space_on_first_line = true
+      end
+      j = j + 1
+    end
+    (TkLexError, n, UnterminatedLiteral)
+
+  fun tag _is_c_space(c: U8): Bool =>
+    """
+    C's `isspace`: the four bytes `_is_space` holds, and `\v` and `\f`.
+    """
+    _is_space(c) or (c == 0x0B) or (c == 0x0C)
+
+  fun ref _character(from: USize, n: USize)
+    : (TokenKind, USize, (LexFailure | None))
+  =>
+    """
+    A character literal, which ponyc lexes as an integer. An empty one
+    is refused; a bad escape is recorded where it sits and the literal
+    stays an integer.
     """
     var j = from + 1
+    var chars: USize = 0
     while j < n do
       let c = _byte(j)
       if c == '\\' then
-        j = j + 2
+        j = _escape(j, false, false)
       elseif c == '\'' then
+        if chars == 0 then
+          return (TkLexError, j + 1, EmptyCharacterLiteral)
+        end
         return (TkInt, j + 1, None)
       else
         j = j + 1
       end
+      chars = chars + 1
     end
     (TkLexError, n, UnterminatedLiteral)
+
+  fun ref _escape(from: USize, unicode_allowed: Bool, is_string: Bool)
+    : USize
+  =>
+    """
+    ponyc's `escape`: the sequence starting at the `\` at `from`,
+    recorded as refused when it is one ponyc refuses, positioned at the
+    `\` and covering what ponyc read of it. Returns where the sequence
+    ends. Reading past the end of the source is safe: `_byte` is 0
+    there, which no escape accepts.
+    """
+    let c = _byte(from + 1)
+    var j = from + 2
+    var hex_digits: USize = 0
+    var known = true
+    match c
+    | 'a' | 'b' | 'e' | 'f' | 'n' | 'r' | 't' | 'v' | '\\' | '0' => None
+    | 'x' => hex_digits = 2
+    | '"' => known = is_string
+    | '\'' => known = not is_string
+    | 'u' => if unicode_allowed then hex_digits = 4 else known = false end
+    | 'U' => if unicode_allowed then hex_digits = 6 else known = false end
+    else
+      known = false
+    end
+    if hex_digits > 0 then
+      var value: U32 = 0
+      var read: USize = 0
+      while read < hex_digits do
+        let d = _byte(j)
+        let digit: U32 =
+          if _is_digit(d) then (d - '0').u32()
+          elseif (d >= 'a') and (d <= 'f') then ((d - 'a') + 10).u32()
+          elseif (d >= 'A') and (d <= 'F') then ((d - 'A') + 10).u32()
+          else break
+          end
+        value = (value << 4) + digit
+        j = j + 1
+        read = read + 1
+      end
+      if read < hex_digits then
+        _fail_inside(InvalidEscape(_text(from, j),
+          HexDigitsRequired(hex_digits)), from, j.min(source.size()))
+      elseif value > 0x10FFFF then
+        _fail_inside(InvalidEscape(_text(from, j), ExceedsUnicodeRange),
+          from, j.min(source.size()))
+      end
+    elseif not known then
+      _fail_inside(InvalidEscape(_text(from, j), UnknownEscape), from,
+        j.min(source.size()))
+    end
+    j
+
+  fun _text(from: USize, to: USize): String val =>
+    """
+    The source bytes from `from` to `to`, clipped to the source.
+    """
+    source.substring(from.isize(), to.min(source.size()).isize())
 
 class _TokenIterator is Iterator[(TokenKind, USize, USize)]
   """

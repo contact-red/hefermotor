@@ -271,6 +271,8 @@ class \nodoc\ iso _TestTreeCheckErrorRows is UnitTest
         diag.Span("/t", "t.pony", at, 1)) } val
     let limit = diag.Diagnostic(SyntaxLimit(500),
       diag.FileOnly("/t", "t.pony"))
+    let refused = diag.Diagnostic(LexError(UnrecognizedCharacter('$')),
+      diag.Span("/t", "t.pony", 0, 1))
     // An error node holding one identifier, under the module.
     let sound: Array[SyntaxElement] val =
       [(NdModule, 0, 5); (NdError, 0, 2); (TkId, 0, 1); (TkWhitespace, 1, 1)
@@ -289,10 +291,13 @@ class \nodoc\ iso _TestTreeCheckErrorRows is UnitTest
       [(NdModule, 0, 4); (NdError, 0, 2); (TkWhitespace, 0, 1)
         (TkEof, 2, 1)],
       [expected(0)], "ErrorNonEmpty at element 1", "trivia only")
-    _check2(h, "$\n",
+    let refusal_first: Array[SyntaxElement] val =
       [(NdModule, 0, 5); (NdError, 0, 2); (TkLexError, 0, 1)
-        (TkWhitespace, 1, 1); (TkEof, 2, 1)],
-      [], "", "a lexer refusal needs no record here")
+        (TkWhitespace, 1, 1); (TkEof, 2, 1)]
+    _check2(h, "$\n", refusal_first, [refused], "",
+      "a lexer refusal's record excuses its error node")
+    _check2(h, "$\n", refusal_first, [], "ErrorAtDiagnostic at element 1",
+      "a lexer refusal with no record")
     // An error node under an entity: only a nesting record excuses it.
     let under_entity: Array[SyntaxElement] val =
       [(NdModule, 0, 8); (NdClassDef, 0, 6); (TkClass, 0, 1)

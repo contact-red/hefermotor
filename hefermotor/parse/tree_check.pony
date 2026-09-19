@@ -87,7 +87,7 @@ primitive ErrorNonEmpty
 primitive ErrorAtDiagnostic
   """
   An `NdError` starts where a diagnostic starts, or the file's
-  `SyntaxLimit` is present, or its first token is a lexer refusal.
+  `SyntaxLimit` is present.
   """
   fun name(): String =>
     """
@@ -296,11 +296,7 @@ primitive TreeCheck
           let parent = try kinds(kinds.size() - 1)? else NdModule end
           errors.push(_OpenError(i, parent, entity_seen))
           if not (starts.has(offset) or starts.limit) then
-            let refusal_first =
-              ((i + 1) < n) and (tree._kind(i + 1) is TkLexError)
-            if not refusal_first then
-              out.push(TreeViolation(ErrorAtDiagnostic, i))
-            end
+            out.push(TreeViolation(ErrorAtDiagnostic, i))
           end
           match parent
           | NdModule | NdMembers | NdSeq | NdUse => None

@@ -1136,6 +1136,56 @@ the lexer produced (T7).
    junk fixtures are baselined under the quarried item grammar and are
    re-baselined in task 10.
 
+9. **Lexer diagnostics and string values.** `LexError(failure)` with
+   code `parse/lex`, over the eleven `LexFailure` members, each check
+   ported from its `lexer.c` site: `_integer` is `lex_integer` with a
+   `U128` accumulator and `mulc`/`addc` for ponyc's overflow test,
+   `_escape` is `escape` with its three faults, `_triple_string`
+   carries the below-the-opener check, `_character` the empty-literal
+   check. A refusal inside a literal is recorded at the escape with
+   the literal's token index and the literal keeps its kind; a refused
+   number covers the bytes ponyc consumed before refusing, and scanning
+   goes on from the next byte, so every byte still lies in one token.
+   `_Parser._emit` records the stream's failures for the token it
+   emits, in cursor order, so lexer records reach `_Records` in the
+   order the parser reads and the sort puts a lexer record before a
+   parser record at a later byte. `ErrorAtDiagnostic` loses its
+   lexer-refusal exception: a refused token's record starts at the
+   token. Messages are ponyc's texts through a `message` on every
+   member; `_Byte` renders a source byte as itself when printable
+   ASCII and as `\xNN` otherwise. `StringLiteralValue` ports
+   `normalise_string` line by line, the cut clipped by the line's
+   length with its newline as ponyc's `memmove` clips it, and decodes
+   a `\x` escape as its code point UTF-8 encoded (`append_utf8`), where
+   the quarried code pushed the raw byte; a refused escape drops out
+   of the value; `of(node)` is added, still without a caller until the
+   views. Deviations from the task text, each recorded here: the
+   design's note that a BOM is three errors on both sides is wrong on
+   ponyc's side, whose parser stops at the first refused token, so the
+   entry in `docs/ponyc-divergences.md` says that; ponyc's unicode-range
+   message formats the rest of the source (`%8s`), recorded as a
+   divergence rather than matched. Two ponyc bugs found by the review
+   and recorded in that entry, not fixed here: a `\` followed by a
+   newline inside a literal leaves every later line ponyc reports one
+   short, and a `\` as the last byte aborts a ponyc built with
+   assertions. `push_utf32` writes U+FFFD for a surrogate escape where
+   ponyc's `append_utf8` writes the code point's bytes, so `_decode`
+   encodes by hand. `make token-agreement` re-run: 465
+   files, 465 agree. `make token-digest` writes one digest per stdlib
+   package of its `--tokens` output to `tools/syntax/token_digest/`
+   (41 packages, deterministic across two runs), for task 13's `make
+   corpus` to compare and the bump procedure to regenerate. Fixtures:
+   `syntax-lex-underscore`, `-escape`, `-dollar`,
+   `-unterminated-string`, `-triple-not-below` and `-bom` (EXPECT 3,
+   ponyc's `1:1` among them); `syntax-lexerror-at-closer`'s gap
+   closes and its EXPECT becomes 2. Tests: one per failure at ponyc's
+   position over twenty-one sources; the refused extents; the overflow
+   boundary in three bases; the byte rule on every byte-carrying
+   member; a lexer record before a parser record, and an escape inside
+   an open `if` beside the opener; the `lexer.cc` triple-string cases
+   with a `\r\n` leading newline, a whitespace line shorter than the
+   indent, and a one-line literal; `"\q"` decodes to nothing.
+
 ### The ponyc-bump procedure
 
 Every claim about ponyc in these documents cites commit `6a0bfa80b`;
@@ -1146,7 +1196,9 @@ all of the following, so that the pin is one commit throughout:
 1. Update the commit named at the top of this file and in
    `docs/ponyc-divergences.md`, and re-check each cited path and line.
 2. `make token-agreement PONYC_SRC=<checkout> PONYC_LIB=<its lib dir>`
-   against the new ponyc on `PATH`: every stdlib file must agree.
+   against the new ponyc on `PATH`: every stdlib file must agree. Then
+   `make token-digest` and commit `tools/syntax/token_digest/`, which
+   changes with the stdlib.
 3. `make regen-token-kinds PONYC_SRC=<checkout>` and review the diff of
    `hefermotor/parse/token_kind.pony`. A kind added or removed changes
    the counts the token-kind tests assert; the tests still pass under a

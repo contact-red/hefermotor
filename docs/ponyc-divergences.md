@@ -117,6 +117,33 @@ Every other entry cites ponyc at commit `6a0bfa80b`.
   is the choice to make the opener's record conditional instead; its
   cost there lists the end-of-file shapes, and the closer-present
   shape belongs on the same list.
+- **Every refused token is reported; ponyc's parser stops at the
+  first.** hefermotor records one `parse/lex` per refused token and
+  scans on, where ponyc's parser returns at a `TK_LEX_ERROR`
+  (`parserapi.c:428-429`, `:513-514`), so a byte-order mark is three
+  records (`1:1`, `1:2`, `1:3`) where ponyc prints one at `1:1` and
+  stops. A refused escape inside a literal is reported and carried on
+  from on both sides. Every position ponyc reports is among
+  hefermotor's, except after a `\` followed by a newline inside a
+  literal: ponyc's `consume_chars` (`lexer.c:405-421`) counts a newline
+  only as the first byte consumed, and `escape` consumes the `\` and
+  the newline together, so every later line ponyc reports is one
+  short. Messages are ponyc's lexer texts, with a source byte rendered
+  as itself when printable ASCII and as `\xNN` otherwise where ponyc
+  prints the byte raw (`Unrecognized character: \xef`). A refused
+  numeric literal covers the bytes ponyc's lexer consumed before
+  refusing it (`1__2` is a refused `1_` then an identifier `_2`),
+  since ponyc's parser never sees what its lexer would scan next. A
+  `\` as the source's last byte, inside a literal, is two records
+  here, the escape and the unterminated literal; a ponyc built with
+  assertions aborts on it (`consume_chars`), and one without reads
+  past its buffer.
+- **The unicode-range message names the escape only.** ponyc's
+  `Escape sequence "%8s" exceeds unicode range (0x10FFFF)`
+  (`lexer.c:796-797`) formats the rest of the source from the escape,
+  so its message runs to the end of the file; hefermotor's names the
+  eight-byte escape: `Escape sequence "\U110000" exceeds unicode range
+  (0x10FFFF)`. The position agrees.
 - **An expectation's message names the token found.** hefermotor
   renders "syntax error: expected WHAT, found TOKEN"; ponyc renders
   "syntax error: expected WHAT after LAST" (`parserapi.c:88`), and

@@ -691,8 +691,8 @@ class \nodoc\ iso _AccessOrderDoesNotMatter
   widths sum to the source size, the token after the last is `TkEof`
   with width 0 and so is an index five past it, `_scanned()` never
   exceeds the largest index asked for plus one, and the failure list
-  holds one record per `TkLexError` scanned, with that token's index,
-  offset and width.
+  holds, per token in token order, any escape records inside it and
+  then, for a `TkLexError`, one record covering the token.
   """
   fun name(): String => "parse/lexer: access order does not matter"
 
@@ -702,13 +702,15 @@ class \nodoc\ iso _AccessOrderDoesNotMatter
   fun gen(): Generator[(Array[U8] val, Array[USize] val)] =>
     // Sources are fragments joined: single bytes, and the openers and
     // closers that take more than one byte to reach, so that comments,
-    // triple-quoted strings and a newline before a symbol with a
-    // newline form are common shapes.
+    // triple-quoted strings, a newline before a symbol with a newline
+    // form, and each shape the lexer refuses are common shapes.
     let interesting: Array[U8] val =
       [' '; '\n'; '\t'; '"'; '\''; '/'; '*'; '('; '['; '-'; '~'; '<'
         '='; '.'; '_'; '0'; '9'; 'x'; 'e'; '#'; '$'; '\\'; 0xEF; 0]
     let multi: Array[String] val =
-      ["//"; "/*"; "*/"; "\"\"\""; "\n("; "\n["; "\n-"; "\n-~"; "/* */("]
+      ["//"; "/*"; "*/"; "\"\"\""; "\n("; "\n["; "\n-"; "\n-~"; "/* */("
+        "\"\\q\""; "'\\q'"; "\"\\x1"; "\"\\u12"; "\"\\U110000\""; "''"
+        "1__"; "1_"; "0x"; "0b2"; "1e"; "1.5_"; "\"\"\"a\nb\"\"\""]
     let one = {(b: U8): String => String.from_array([b]) }
     let fragment: Generator[String] = Generators.frequency[String]([
       (6, Generators.one_of[U8](interesting).map[String](one))
@@ -761,23 +763,39 @@ class \nodoc\ iso _AccessOrderDoesNotMatter
     h.assert_eq[U32](0, after_width, "the token after the last has a width")
     h.assert_true(random.token(expected.size() + 5)._1 is TkEof,
       "a later index is not TkEof")
-    // Every token is now scanned: the failure list is one record per
-    // TkLexError, in token order, with the token's index, offset and
-    // width.
+    // Every token is now scanned: the failure list holds, per token in
+    // token order, any escape records inside it and then, for a
+    // TkLexError, one record covering the token.
     var offset: USize = 0
     for (i, (kind, width)) in expected.pairs() do
-      if kind is TkLexError then
+      var covering: USize = 0
+      while true do
         match random.next_failure()
-        | (let index: USize, _, let at: USize, let len: USize) =>
-          h.assert_eq[USize](i, index, "failure index")
-          h.assert_eq[USize](offset, at, "failure offset")
-          h.assert_eq[USize](width.usize(), len, "failure length")
+        | (let index: USize, let f: LexFailure, let at: USize,
+          let len: USize) if index == i =>
+          match f
+          | let _: InvalidEscape =>
+            h.assert_eq[USize](0, covering,
+              "escape record after the covering record of token " +
+              i.string())
+            h.assert_true(
+              (at >= offset) and ((at + len) <= (offset + width.usize())),
+              "escape record outside token " + i.string())
+            h.assert_true((kind is TkString) or (kind is TkInt) or
+              (kind is TkLexError), "escape record on a " + kind.name())
+          else
+            covering = covering + 1
+            h.assert_eq[USize](offset, at, "failure offset")
+            h.assert_eq[USize](width.usize(), len, "failure length")
+          end
+          random.take_failure()
         else
-          h.fail("no failure recorded for token " + i.string())
+          break
         end
-        random.take_failure()
       end
+      h.assert_eq[USize](if kind is TkLexError then 1 else 0 end, covering,
+        "records covering token " + i.string() + ", a " + kind.name())
       offset = offset + width.usize()
     end
     h.assert_true(random.next_failure() is None,
-      "a failure with no TkLexError")
+      "a failure past the last token")
