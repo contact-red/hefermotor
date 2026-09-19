@@ -1508,6 +1508,69 @@ the lexer produced (T7).
     `(A, )`, a field with no type, two broken lambda types, and the
     one-member union's class).
 
+15. **The oracle.** `tools/syntax --shape` (`--ponyc-shape` in the
+    design; the runtime takes every `--pony`-prefixed argument as its
+    own) prints a module through the views in the shape `ponyc
+    --pass=parse --astpackage` prints it, after a `;; <file name>`
+    sentinel line; `tools/syntax/agree.py` runs ponyc per package
+    under a thread pool, splits its dump with a quote-aware
+    balanced-paren walker, reverses the modules (ponyc prints them in
+    reverse strcmp order) to pair them with the tool's sorted output,
+    normalises ponyc's side to the shape the tool prints (`:scope`
+    dropped; a use's guard, a field's initialiser, a parameter's
+    default and a method's body reduced to `x` or `(seq ...)`, a body
+    whose first expression is a string with something after it and
+    whose docstring slot is `x` to `(seq "<text>" ...)`; a value type
+    argument to `value`, its annotation kept) and diffs them per
+    module, one token per line with a newline inside a string written
+    as `\n`, so that a gap file round-trips. The tool's side is not
+    normalised: the review showed that with both sides reduced, a
+    projection printing the docstring form in every slot, or a
+    normaliser dropping the docstring text, still agreed. Strings are
+    compared as ponyc prints them, so the run compares
+    `StringLiteralValue`, the `normalise_string` port, with ponyc's
+    decoding on every docstring, locator and FFI string name of the
+    stdlib, and the body marker with the docstring-in-body rule at the
+    parse pass, before `fun_defaults` runs. Probed shapes the sketch
+    did not have: an
+    absent package docstring prints no slot; an empty member list
+    prints `members` bare; a method with no parameters prints `x`, not
+    `(params)`, and an FFI ellipsis alone `(params ...)`; an FFI
+    string name prints as the string; an intersection prints as `&`
+    and a viewpoint as `->`; a `;` inside a body prints as `;`; a
+    module with no docstring, use or entity prints as the bare atom
+    `module`, as every childless node does; an annotated FFI return
+    type argument that is not a nominal prints the group after its
+    own head, a `thistype` or capability becoming a node to hold it.
+    First run: every stdlib module (465) and every full-program test
+    (310) agreed, so `tools/syntax/known_gaps/` holds only its README.
+    A gap file is keyed by the package's path under its root (the
+    packages directory, or the checkout's `test/full-program-tests/`),
+    since three stdlib packages are named `benchmarks` and two
+    full-program tests `lib`; `run.sh` fails a gap file with no entry
+    in `docs/ponyc-divergences.md`, and `agree.py` fails one naming no
+    module it compared. Two fixture packages under
+    `tools/syntax/fixtures/` pin the projection and the normaliser
+    under `make test` against ponyc's raw output stored beside them:
+    `shape/`, two modules written against its README's branch
+    checklist, and `order/`, four modules, one empty, that pair only
+    if the split is reversed; `agree_check.sh` drives the known-gaps
+    protocol through its four outcomes over the shape fixture. T4's
+    working answer is taken: the differential
+    CI job fetches the pinned ponyc commit shallowly (26 MB, two
+    seconds), runs `make regen-token-kinds` against it and fails when
+    `token_kind.pony` changed (by `diff` against a copy: the container
+    job's checkout leaves the workspace outside git's safe directories
+    once the step ends, so `git diff` sees no repository), and runs
+    `make corpus` with
+    `PONYC_SRC`, so the checkout's examples, full-program tests and
+    tools go through `--check` and the full-program tests through the
+    oracle in CI. The oracle over the stdlib takes 7 s (17 s of CPU
+    across the pool; ponyc is most of it) and over the full-program
+    tests 2 s. ponyc rejects a generic capability alone as a type
+    argument (`A[#send]`), which hefermotor accepts (issue #21); the
+    shape fixture uses `A[iso, val]`.
+
 ### The ponyc-bump procedure
 
 Every claim about ponyc in these documents cites commit `6a0bfa80b`;
@@ -1515,8 +1578,9 @@ Every claim about ponyc in these documents cites commit `6a0bfa80b`;
 last run against it. Moving to a later commit is one change that does
 all of the following, so that the pin is one commit throughout:
 
-1. Update the commit named at the top of this file and in
-   `docs/ponyc-divergences.md`, and re-check each cited path and line.
+1. Update the commit named at the top of this file, in
+   `docs/ponyc-divergences.md` and in `.github/workflows/pr.yml`'s
+   clone step, and re-check each cited path and line.
 2. `make token-agreement PONYC_SRC=<checkout> PONYC_LIB=<its lib dir>`
    against the new ponyc on `PATH`: every stdlib file must agree. Then
    `make token-digest` and commit `tools/syntax/token_digest/`, which
@@ -1528,12 +1592,17 @@ all of the following, so that the pin is one commit throughout:
    removal, so the reviewer of the diff must find those. `_lexer.pony`
    mirrors `lexer.c`'s scanning rules by hand, so the diff of `lexer.c`
    between the two commits is reviewed as well.
-4. Run `make test`, `make determinism`, `make differential` and `make
-   corpus` against the ponyc built from the new commit, and `make
-   corpus-cases PONYC_SRC=<checkout>` for its unit-test programs; a
-   differential case that changes class moves between `KNOWN_GAP` and
-   the ordinary cases in the same change, with the divergence recorded
-   in `docs/ponyc-divergences.md`.
+4. Regenerate `tools/syntax/fixtures/shape/expected.ast` and
+   `order/expected.ast` with the new ponyc (the fixtures' READMEs have
+   the command) and review their diffs. Run `make test`, `make
+   determinism`, `make differential` and `make corpus
+   PONYC_SRC=<checkout>` against the ponyc built from the new commit,
+   and `make corpus-cases PONYC_SRC=<checkout>` for its unit-test
+   programs; a differential case that changes class moves between
+   `KNOWN_GAP` and the ordinary cases in the same change, and a module
+   that changes agreement moves into or out of
+   `tools/syntax/known_gaps/`, with the divergence recorded in
+   `docs/ponyc-divergences.md`.
 
 ## Rules and notes with no other home
 

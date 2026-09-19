@@ -1,0 +1,393 @@
+(package:scope
+  (module:scope
+    (actor:scope
+      \annotation (id nodoc)\
+      (id Act)
+      x
+      x
+      x
+      (members
+        (fun:scope
+          x
+          (id m)
+          x
+          x
+          (lambdatype
+            box
+            (id f)
+            (typeparams (typeparam (id T) (nominal x (id Any) x val x) x))
+            (params (nominal x (id A) x x x) (nominal x (id B) x x x))
+            (nominal x (id C) x x x)
+            x
+            ref
+            ^
+          )
+          x
+          (seq 1)
+          x
+        )
+        (fun:scope
+          x
+          (id n)
+          x
+          x
+          (barelambdatype x x x (params (nominal x (id A) x x x)) x x val x)
+          x
+          (seq 1)
+          x
+        )
+        (fun:scope x (id o) x x (nominal x (id A) x x x) x (seq 1) x)
+        (fun:scope
+          x
+          (id p)
+          x
+          x
+          (tupletype
+            (nominal x (id A) x x x)
+            (nominal x (id B) x x x)
+            (tupletype (nominal x (id C) x x x) (nominal x (id D) x x x))
+          )
+          x
+          (seq 1)
+          x
+        )
+        (fun:scope
+          x
+          (id q)
+          x
+          x
+          (->
+            (nominal x (id A) x x x)
+            (-> (nominal x (id B) x x x) (nominal x (id C) x x x))
+          )
+          x
+          (seq 1)
+          x
+        )
+        (fun:scope
+          x
+          (id r)
+          x
+          x
+          (uniontype
+            (&
+              (uniontype (nominal x (id A) x x x) (nominal x (id B) x x x))
+              (nominal x (id C) x x x)
+            )
+            (nominal x (id D) x x x)
+          )
+          x
+          (seq 1)
+          x
+        )
+        (fun:scope
+          x
+          (id s)
+          x
+          x
+          (uniontype
+            (& (nominal x (id A) x x x) (nominal x (id B) x x x))
+            (nominal x (id C) x x x)
+          )
+          x
+          (seq 1)
+          x
+        )
+        (fun:scope
+          x
+          (id t)
+          x
+          x
+          (uniontype
+            (nominal x (id A) x x x)
+            (uniontype (nominal x (id B) x x x) (nominal x (id C) x x x))
+          )
+          x
+          (seq 1)
+          x
+        )
+        (fun:scope x (id u) x x thistype x (seq 1) x)
+        (fun:scope
+          x
+          (id v)
+          x
+          x
+          (nominal x (id A) (typeargs iso val) x x)
+          x
+          (seq 1)
+          x
+        )
+        (fun:scope
+          x
+          (id w)
+          (typeparams
+            (typeparam
+              (id X)
+              (-> thistype (nominal x (id A) x x x))
+              (valueformalarg 3)
+            )
+            (typeparam (id Y) x x)
+          )
+          x
+          x
+          x
+          (seq 1)
+          x
+        )
+        (fun:scope
+          x
+          (id z)
+          x
+          x
+          (nominal x (id U8) x x x)
+          x
+          (seq "s\0t" ; 1)
+          x
+        )
+        (fun:scope x (id l) x x (lambdatype x x x x x x x x) x (seq 1) x)
+      )
+      x
+      x
+    )
+  )
+  (module:scope
+    "Package docstring with \"quotes\", a \\ backslash and a
+second line.
+"
+    (use x "collections" x)
+    (use (id c) "collections/persistent" (reference (id linux)))
+    (use x "x" "y")
+    (use x "z" (seq (or (reference (id linux)) (reference (id osx)) x)))
+    (use x "w" (seq "a" ; (reference (id linux))))
+    (use
+      x
+      (ffidecl:scope
+        (id f)
+        (typeargs (nominal \annotation (id a)\ x (id U8) x x x))
+        (params
+          (param
+            \annotation (id b)\
+            (id x)
+            (nominal x (id U8) x x x)
+            (seq:scope 1)
+          )
+          ...
+        )
+        x
+        ?
+      )
+      x
+    )
+    (use
+      (id g)
+      (ffidecl:scope
+        "str name"
+        (typeargs (nominal x (id None) x x x))
+        x
+        x
+        x
+      )
+      (reference (id windows))
+    )
+    (use
+      x
+      (ffidecl:scope
+        (id h)
+        (typeargs (nominal x (id U8) x x x))
+        (params ...)
+        x
+        x
+      )
+      x
+    )
+    (use
+      x
+      (ffidecl:scope
+        (id k)
+        (typeargs (nominal x (id U8) x x x))
+        (params (param (id a) (nominal x (id U8) x x x) x))
+        x
+        x
+      )
+      x
+    )
+    (use
+      x
+      (ffidecl:scope
+        (id l)
+        (typeargs
+          (uniontype
+            \annotation (id x)\
+            (nominal x (id U8) x x x)
+            (nominal x (id U16) x x x)
+          )
+        )
+        x
+        x
+        x
+      )
+      x
+    )
+    (use
+      x
+      (ffidecl:scope
+        (id m)
+        (typeargs (valueformalarg \annotation (id x)\ 3))
+        x
+        x
+        x
+      )
+      x
+    )
+    (type:scope
+      (id Alias)
+      x
+      x
+      (provides
+        (uniontype
+          (uniontype (nominal x (id A) x x x) (nominal x (id B) x x x))
+          (nominal x (id C) x x x)
+        )
+      )
+      members
+      x
+      x
+    )
+    (interface:scope (id I) x x x members x x)
+    (trait:scope (id T) x x x members x x)
+    (struct:scope (id S) x x x members x x)
+    (primitive:scope (id P) x x x members x "Primitive docstring")
+    (class:scope
+      \annotation (id packed) (id nodoc)\
+      (id Foo)
+      (typeparams
+        (typeparam
+          (id A)
+          (nominal x (id Any) x val x)
+          (nominal x (id None) x x x)
+        )
+        (typeparam (id B) x x)
+      )
+      iso
+      (provides
+        (&
+          (nominal x (id Named) x x x)
+          (nominal
+            x
+            (id Equatable)
+            (typeargs
+              (nominal
+                x
+                (id Foo)
+                (typeargs (nominal x (id A) x x x) (nominal x (id B) x x x))
+                x
+                x
+              )
+            )
+            x
+            x
+          )
+        )
+      )
+      (members
+        (flet
+          (id x)
+          (uniontype
+            (nominal x (id U8) x x x)
+            (tupletype
+              (->
+                thistype
+                (nominal
+                  x
+                  (id Array)
+                  (typeargs (nominal x (id U8) x x x))
+                  box
+                  x
+                )
+              )
+              (lambdatype
+                x
+                x
+                x
+                (params (nominal x (id A) x x x))
+                (nominal x (id B) x x x)
+                ?
+                val
+                ^
+              )
+            )
+          )
+          x
+          x
+        )
+        (fvar
+          (id y)
+          (nominal
+            (id pkg)
+            (id T)
+            (typeargs (valueformalarg 3) (nominal x (id U8) x #read x))
+            iso
+            ^
+          )
+          1
+          "field docstring"
+        )
+        (embed (id z) (nominal x (id U8) x x x) 2 x)
+        (flet
+          (id w)
+          (nominal x (id U8) x x x)
+          x
+          "docstring without a value"
+        )
+        (flet (id v) (nominal x (id U8) x x x) (seq "s" ; 1) x)
+        (new:scope x (id create) x x x x (seq "s" ; 2) x)
+        (fun:scope
+          \annotation (id nodoc)\
+          box
+          (id f)
+          (typeparams (typeparam (id T) x x))
+          (params
+            (param (id a) (nominal x (id U8) x x x) x)
+            (param (id b) (nominal x (id U8) x x x) (seq:scope 2))
+            ...
+          )
+          (nominal x (id U8) x x x)
+          ?
+          (seq 1)
+          x
+        )
+        (fun:scope x (id g) x x x x (seq "only") x)
+        (be:scope
+          x
+          (id h)
+          x
+          x
+          x
+          x
+          (seq "in the body" ; 1)
+          "before the arrow"
+        )
+        (fun:scope x (id i) x x iso x (seq "s" 2) x)
+        (fun:scope @ (id bare) x x (nominal x (id U8) x x x) x (seq 1) x)
+        (fun:scope x (id j) x x (nominal x (id A) x x !) ? x x)
+        (fun:scope
+          x
+          (id k)
+          x
+          (params
+            (param (id a) (nominal x (id U8) x x x) x)
+            (param (id b) (nominal x (id U8) x x x) (seq:scope 2))
+          )
+          (nominal x (id U8) x x x)
+          x
+          (seq 1 ; 2)
+          x
+        )
+        (be:scope x (id h2) x x x x (seq "doc" ; 1) x)
+        (fun:scope x (id d) x x x x (seq 1) "doc")
+      )
+      @
+      "Class docstring"
+    )
+  )
+)

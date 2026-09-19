@@ -74,6 +74,19 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+      - name: Clone ponyc at the pinned commit
+        run: |
+          git init -q "$RUNNER_TEMP/ponyc-src"
+          git -C "$RUNNER_TEMP/ponyc-src" remote add origin \
+            https://github.com/ponylang/ponyc.git
+          git -C "$RUNNER_TEMP/ponyc-src" fetch -q --depth 1 origin \
+            6a0bfa80b49acc65b998c6db56ed913e55221c0a
+          git -C "$RUNNER_TEMP/ponyc-src" checkout -q --detach FETCH_HEAD
+      - name: Token table drift gate
+        run: |
+          cp hefermotor/parse/token_kind.pony "$RUNNER_TEMP/token_kind.pony"
+          make regen-token-kinds PONYC_SRC="$RUNNER_TEMP/ponyc-src"
+          diff "$RUNNER_TEMP/token_kind.pony" hefermotor/parse/token_kind.pony
       - name: make differential
         run: |
           if [ "$(ulimit -s)" = unlimited ]; then ulimit -s 8192; fi
@@ -81,4 +94,4 @@ jobs:
       - name: make corpus
         run: |
           if [ "$(ulimit -s)" = unlimited ]; then ulimit -s 8192; fi
-          make corpus
+          make corpus PONYC_SRC="$RUNNER_TEMP/ponyc-src"
