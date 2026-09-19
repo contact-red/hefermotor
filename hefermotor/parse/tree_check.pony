@@ -498,7 +498,7 @@ primitive _Views
       e.name()
       e.docstring()
       _type_params(e.node(), e.type_params(), out)
-      for tp in e.type_params().values() do _type_param(tp, e.span(), out) end
+      _type_params_of(e.type_params(), e.span(), out)
       match e.provides()
       | let t: TypeExpr => _type(t, e.span(), out)
       end
@@ -538,9 +538,7 @@ primitive _Views
           md.body()
           _type_params(md.node(), md.type_params(), out)
           _params(md.node(), md.params(), out)
-          for tp in md.type_params().values() do
-            _type_param(tp, md.span(), out)
-          end
+          _type_params_of(md.type_params(), md.span(), out)
           for prm in md.params().values() do _param(prm, md.span(), out) end
           match md.return_type()
           | let t: TypeExpr => _type(t, md.span(), out)
@@ -574,20 +572,51 @@ primitive _Views
     end
 
   fun _type_param(tp: TypeParamDecl, parent: diag.Span,
-    out: Array[TreeViolation])
+    work: Array[(TypeExpr, diag.Span)], out: Array[TreeViolation])
   =>
+    """
+    The type parameter's own parts; its types go onto `work`.
+    """
     _in(tp.node(), tp.span(), parent, out)
     _unique(tp.node(), _UniqueParts.type_param(), out)
     tp.name()
     match tp.constraint()
-    | let t: TypeExpr => _type(t, tp.span(), out)
+    | let t: TypeExpr => work.push((t, tp.span()))
     end
     match tp.default()
-    | let t: TypeExpr => _type(t, tp.span(), out)
+    | let t: TypeExpr => work.push((t, tp.span()))
     | let v: ValueArg => _in(v.node(), v.span(), tp.span(), out)
     end
 
+  fun _type_params_of(tps: Array[TypeParamDecl] val, parent: diag.Span,
+    out: Array[TreeViolation])
+  =>
+    """
+    The type parameters of an item, each with its types walked.
+    """
+    let work = Array[(TypeExpr, diag.Span)]
+    for tp in tps.values() do _type_param(tp, parent, work, out) end
+    while true do
+      (let here, let above) = try work.pop()? else break end
+      _one_type(here, above, work, out)
+    end
+
   fun _type(t: TypeExpr, parent: diag.Span, out: Array[TreeViolation]) =>
+    """
+    The type views under `t`, walked with an explicit stack: a type
+    nests as deep as the grammar's depth limit, and the walk's frames
+    are not budgeted in `StackNeed`.
+    """
+    let work = Array[(TypeExpr, diag.Span)]
+    work.push((t, parent))
+    while true do
+      (let here, let above) = try work.pop()? else break end
+      _one_type(here, above, work, out)
+    end
+
+  fun _one_type(t: TypeExpr, parent: diag.Span,
+    work: Array[(TypeExpr, diag.Span)], out: Array[TreeViolation])
+  =>
     match \exhaustive\ t
     | let n: NominalType =>
       _in(n.node(), n.span(), parent, out)
@@ -609,29 +638,29 @@ primitive _Views
       _ordered(n.node(), consume arg_spans, out)
       for a in n.type_args().values() do
         match a
-        | let m: TypeExpr => _type(m, n.span(), out)
+        | let m: TypeExpr => work.push((m, n.span()))
         | let v: ValueArg => _in(v.node(), v.span(), n.span(), out)
         end
       end
     | let u: UnionType =>
       _in(u.node(), u.span(), parent, out)
       _ordered(u.node(), _type_spans(u.members()), out)
-      for m in u.members().values() do _type(m, u.span(), out) end
+      for m in u.members().values() do work.push((m, u.span())) end
     | let i: IsectType =>
       _in(i.node(), i.span(), parent, out)
       _ordered(i.node(), _type_spans(i.members()), out)
-      for m in i.members().values() do _type(m, i.span(), out) end
+      for m in i.members().values() do work.push((m, i.span())) end
     | let tu: TupleType =>
       _in(tu.node(), tu.span(), parent, out)
       _ordered(tu.node(), _type_spans(tu.members()), out)
-      for m in tu.members().values() do _type(m, tu.span(), out) end
+      for m in tu.members().values() do work.push((m, tu.span())) end
     | let v: ViewpointType =>
       _in(v.node(), v.span(), parent, out)
       match v.left()
-      | let l: TypeExpr => _type(l, v.span(), out)
+      | let l: TypeExpr => work.push((l, v.span()))
       end
       match v.right()
-      | let r: TypeExpr => _type(r, v.span(), out)
+      | let r: TypeExpr => work.push((r, v.span()))
       end
     | let l: LambdaType =>
       _in(l.node(), l.span(), parent, out)
@@ -645,11 +674,11 @@ primitive _Views
       _type_params(l.node(), l.type_params(), out)
       _ordered(l.node(), _type_spans(l.param_types()), out)
       for tp in l.type_params().values() do
-        _type_param(tp, l.span(), out)
+        _type_param(tp, l.span(), work, out)
       end
-      for m in l.param_types().values() do _type(m, l.span(), out) end
+      for m in l.param_types().values() do work.push((m, l.span())) end
       match l.return_type()
-      | let r: TypeExpr => _type(r, l.span(), out)
+      | let r: TypeExpr => work.push((r, l.span()))
       end
     | let th: ThisType => _in(th.node(), th.span(), parent, out)
     | let c: CapType =>

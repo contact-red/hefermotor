@@ -1496,8 +1496,13 @@ the lexer produced (T7).
     from 8.2 s; 0.3 ms per parse), and finds no violation over the
     stdlib,
     the checkout's examples, full-program tests and tools (60,864
-    mutants). Five counterfactual mutations of the accessors and the
-    rows each failed the test written for them; the review's eight
+    mutants). The walk over a type's members uses an explicit stack:
+    a type nests as deep as the grammar's depth limit, and with the
+    walk recursing the release parse tests overflowed the 3 MiB
+    `StackNeed` sizes for the parser alone (CI's `make test-stack`;
+    the debug build's frames fit). Five counterfactual mutations of
+    the accessors and the rows each failed the test written for them;
+    the review's eight
     more found the rows the tests now carry (two return type
     arguments, `None` in every spelling, `(|)`, `A iso!`, `->B`,
     `(A, )`, a field with no type, two broken lambda types, and the
