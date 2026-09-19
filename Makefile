@@ -29,7 +29,7 @@ endif
 SOURCE_FILES := $(shell find $(SRC_DIR) -name '*.pony')
 CLI_SOURCE_FILES := $(shell find $(CLI_SRC_DIR) -name '*.pony')
 
-test: lint-source unit-tests cli
+test: lint-source unit-tests cli syntax-fixtures
 
 determinism: $(cli_binary)
 	tools/determinism/check.sh $(cli_binary)
@@ -78,13 +78,46 @@ build/%/hefermotor_tests: $(SOURCE_FILES) | build/%
 	  -o build/$* -b hefermotor_tests $(SRC_DIR)
 
 syntax_binary := build/release/syntax
-SYNTAX_SOURCE_FILES := $(shell find tools/syntax -name '*.pony')
+SYNTAX_SOURCE_FILES := $(wildcard tools/syntax/*.pony)
+syntax_fixtures := $(sort $(wildcard tools/syntax/fixtures/*.pony))
 
 syntax: $(syntax_binary)
 
-$(syntax_binary): $(SOURCE_FILES) $(SYNTAX_SOURCE_FILES) | build/release
+build/%/syntax: $(SOURCE_FILES) $(SYNTAX_SOURCE_FILES) | build/%
 	$(GET_DEPENDENCIES_WITH)
-	$(COMPILE_WITH) -o build/release -b syntax tools/syntax
+	$(COMPILE_WITH) $(if $(filter release,$*),,--debug) \
+	  -o build/$* -b syntax tools/syntax
+
+# Each fixture's `--tree` output against the expected output beside it,
+# and every fifth mutant of the fixtures, in their sorted order, against
+# the committed sample under `fixtures/mutants/`.
+syntax-fixtures: $(BUILD_DIR)/syntax
+	test -n "$(syntax_fixtures)"
+	for f in $(syntax_fixtures); do \
+	  $(BUILD_DIR)/syntax --tree $$f > $(BUILD_DIR)/fixture.tree || exit 1; \
+	  diff $${f%.pony}.tree $(BUILD_DIR)/fixture.tree || exit 1; \
+	done
+	rm -rf $(BUILD_DIR)/mutants
+	$(BUILD_DIR)/syntax --mutants $(syntax_fixtures) \
+	  --emit $(BUILD_DIR)/mutants --every 5
+	diff -r tools/syntax/fixtures/mutants $(BUILD_DIR)/mutants
+
+# The parser over every stdlib file and every mutant of each, a sample
+# of the mutants against ponyc's verdict, the token digests, and the
+# timings; with PONYC_SRC set, the checkout's examples, full-program
+# tests and tools as well. Release builds, since the numbers are
+# recorded.
+corpus: $(syntax_binary) build/release/hefermotor
+	tools/syntax/run.sh $(syntax_binary) build/release/hefermotor
+
+# The programs in a ponyc checkout's unit tests as sample cases for the
+# differential harness, extracted into the build directory.
+corpus-cases: build/release/hefermotor
+	test -n "$(PONYC_SRC)" || \
+	  { echo "set PONYC_SRC=<ponyc checkout>"; exit 2; }
+	rm -rf build/corpus
+	tools/corpus/extract_corpus.py "$(PONYC_SRC)" build/corpus
+	tools/differential/run.sh build/release/hefermotor build/corpus/sample-*
 
 # Lexer agreement with ponyc over the stdlib beside the ponyc on PATH.
 # Needs a ponyc checkout (PONYC_SRC) and its built static libraries
@@ -101,14 +134,9 @@ token-agreement: check-ponyc-vars $(syntax_binary) $(ponyc_dump)
 # `tools/syntax/token_digest/`, committed so that re-running the target
 # after a lexer change diffs; regenerated in the ponyc-bump procedure.
 token-digest: $(syntax_binary)
-	rm -rf tools/syntax/token_digest && mkdir -p tools/syntax/token_digest
-	for dir in $$(find "$(stdlib_dir)" -name '*.pony' -exec dirname {} \; \
-	    | LC_ALL=C sort -u); do \
-	  pkg=$$(echo "$${dir#$(stdlib_dir)/}" | tr / _); \
-	  find "$$dir" -maxdepth 1 -name '*.pony' | LC_ALL=C sort \
-	    | xargs $(syntax_binary) --tokens | sed 's|^### .*/|### |' \
-	    | sha256sum | cut -d' ' -f1 > tools/syntax/token_digest/$$pkg; \
-	done
+	rm -rf tools/syntax/token_digest
+	tools/syntax/token_digest.sh $(syntax_binary) "$(stdlib_dir)" \
+	  tools/syntax/token_digest
 
 check-ponyc-vars:
 	test -n "$(PONYC_SRC)" -a -n "$(PONYC_LIB)" || \
@@ -171,7 +199,6 @@ all: test
 build/debug build/release:
 	mkdir -p $@
 
-.PHONY: all cli clean determinism differential docs lint-source \
-  check-ponyc-vars regen-token-kinds syntax TAGS test test-stack \
-  token-agreement token-digest \
-  unit-tests
+.PHONY: all cli clean corpus corpus-cases determinism differential docs \
+  lint-source check-ponyc-vars regen-token-kinds syntax syntax-fixtures \
+  TAGS test test-stack token-agreement token-digest unit-tests
