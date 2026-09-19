@@ -139,10 +139,17 @@ Every other entry cites ponyc at commit `6a0bfa80b`.
   construct (`foo(1,` at the end of the file gives `expected argument
   after ,` only; `{(,) => 1 }` gives `expected ) after (` only),
   hefermotor also records the opener, and its sorted list starts at
-  the opener where ponyc's line is the inner one. T2 of Discussion #13
-  is the choice to make the opener's record conditional instead; its
-  cost there lists the end-of-file shapes, and the closer-present
-  shape belongs on the same list.
+  the opener where ponyc's line is the inner one. A third shape is a
+  required token that itself opens what `close` closes: an FFI call
+  `@S` at the end of a method body and the file gives ponyc `expected
+  ( after S` only, and hefermotor that beside `unterminated ffi
+  arguments` at the `@`, for an argument list that never began; every
+  `close` site has the shape, since
+  ponyc's rule macros return on the first failure and its `TERMINATE`
+  never runs. T2 of Discussion #13 is the choice to make the opener's
+  record conditional instead; its cost there lists the end-of-file
+  shapes, and the closer-present and never-opened shapes belong on the
+  same list.
 - **Every refused token is reported; ponyc's parser stops at the
   first.** hefermotor records one `parse/lex` per refused token and
   scans on, where ponyc's parser returns at a `TK_LEX_ERROR`

@@ -1441,6 +1441,68 @@ the lexer produced (T7).
     marker and no README", which holds of the emitted cases, while
     the two committed ones carry a README like every other fixture.
 
+14. **The views.** `view_items.pony` and `view_types.pony` as the
+    design sketches them: `PackageUse`, `FfiDecl`, `FfiReturnArg`,
+    `EntityDecl`, `FieldDecl`, `MethodDecl`, `ParamDecl`,
+    `TypeParamDecl`; `TypeOf` over `NominalType`, `UnionType`,
+    `IsectType`, `TupleType`, `ViewpointType`, `LambdaType`,
+    `ThisType` and `CapType`, with `ValueArg` in `TypeArg`;
+    `SyntaxTree.docstring`, `use_commands`, `entities` and
+    `ffi_decls`; `_UsesOf` over `PackageUse`; `_Parts` with `unique`,
+    `after`, `before`, `leaf`, `leaf_before`, `each` and `operands`,
+    each accessor's docstring naming the rule it uses. The
+    uniqueness each "the K child" accessor takes is data, one set of
+    kinds per accessor in `_UniqueParts`, and `TreeCheck`'s `_Views`
+    walk counts every set in one pass over the node's children; a
+    field's `TkString` is unique only without `TkAssign`, since a
+    string value is a `TkString` child too (found on the first
+    `--check` run over the stdlib's mutants: a `"` inserted before a
+    field's docstring), and the docstring rule after `=` is
+    positional; a nominal type's name is unique only without a dot,
+    for the same reason. The
+    walk runs only when the structural rows found nothing, since it
+    reads the tree through `children`, which is total only over a
+    tree those rows accept. `ViewsNest` also requires the views a
+    list accessor returns to be in source order without overlap,
+    which is not by construction for the fold; through a tree the
+    grammar builds it fires on nothing (its counterfactual is the
+    checker's comparison inverted: 53 tests fail), and
+    `PartsUnique`'s counterfactuals are hand-built fields with two
+    name tokens and with two strings without a value, beside one with
+    a string value then a docstring, which is silent. The infix fold
+    collects a run's members and builds the `UnionType` or
+    `IsectType` when the run closes, at the operator change or the
+    end, with the closed run the first member of the next unless it
+    has no member: the review found `(| & A |)` carrying an empty
+    union whose span, the node's, reached past the intersection's,
+    the one way `ViewsNest` fired through a sound tree; `(A | B & C |
+    D)` folds as the docstring says and the inner runs' spans cover
+    their members. An
+    infix type reaches a field only inside parentheses, since ponyc's
+    `type` is `atomtype [viewpoint]` and `infixtype` lives inside
+    `groupedtype`, so the fold tests write `(A | B)`. Deviation from
+    the sketch: `MethodDecl.docstring` follows ponyc's
+    `sugar_docstring` as it runs after `fun_defaults`, rather than
+    the rule its own lines state: `fun_defaults` appends `None` to
+    the body of a `fun` whose return type is absent or a nominal
+    named `None`, so `fun f() => "s"` has the docstring `"s"`
+    (probed: ponyc's sugared AST carries it, for `(None)`,
+    `builtin.None` and `None val` too, and `fun f(): U8 => "s"`, `be
+    f() => "s"` and `new create() => "s"` do not), where the sketch
+    said a body that is only a string has none;
+    `MethodDecl.returns_none` is that condition, public because M2's
+    body defaulting will need it. Measured: the walk adds 6 s of CPU
+    to the stdlib's 22,320-mutant `--check` on one thread (14.4 s
+    from 8.2 s; 0.3 ms per parse), and finds no violation over the
+    stdlib,
+    the checkout's examples, full-program tests and tools (60,864
+    mutants). Five counterfactual mutations of the accessors and the
+    rows each failed the test written for them; the review's eight
+    more found the rows the tests now carry (two return type
+    arguments, `None` in every spelling, `(|)`, `A iso!`, `->B`,
+    `(A, )`, a field with no type, two broken lambda types, and the
+    one-member union's class).
+
 ### The ponyc-bump procedure
 
 Every claim about ponyc in these documents cites commit `6a0bfa80b`;

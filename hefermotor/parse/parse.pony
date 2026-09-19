@@ -91,71 +91,50 @@ class val ParsedFile
 
 primitive _UsesOf
   """
-  The `UseDecl`s of a tree's `use` section: one per `NdUse` child of
-  the module that holds a string literal directly, with the locator
-  decoded by `StringLiteralValue`, the alias's text, the guard
-  expression's span, the command's span from the keyword through the
-  guard or the literal, and the literal's span. A command that fails
-  before its literal has none among its direct children (the tokens
-  after the fault are its error item) and an FFI declaration holds an
-  `NdUseFFI` instead, so neither yields one; a command that fails in
-  its guard yields one with what the guard's rule read.
+  The `UseDecl`s of a tree's `use` section: one per `PackageUse` in
+  `use_commands` whose locator is present, with the locator decoded by
+  `StringLiteralValue`, the alias's text, the guard's span, the
+  command's span from the keyword through the guard or the literal,
+  and the literal's span. A command that fails before its literal has
+  no locator (the tokens after the fault are its error item) and an
+  FFI declaration is not a `PackageUse`, so neither yields one; a
+  command that fails in its guard yields one with what the guard's
+  rule read.
   """
   fun apply(tree: SyntaxTree): Array[UseDecl] val =>
     let out = recover iso Array[UseDecl] end
-    for command in tree.root().children() do
-      if command.kind() is NdUse then
-        match _one(tree.file, command)
-        | let u: UseDecl => out.push(u)
+    for command in tree.use_commands().values() do
+      match command
+      | let u: PackageUse =>
+        match u.locator()
+        | let l: Node => out.push(_one(tree.file, u, l))
         end
       end
     end
     consume out
 
-  fun _one(file: source.SourceFile, command: Node): (UseDecl | None) =>
-    var alias: (String | None) = None
-    var literal: (Node | None) = None
-    var guard: (Node | None) = None
-    var after_if = false
-    for part in command.children() do
-      if part.is_trivia() then continue end
-      if after_if then
-        // The guard is the one node after `if`, whatever its kind: the
-        // command's infix rule wraps a chain in one node, and a lone
-        // literal is a leaf.
-        if guard is None then guard = part end
-        continue
+  fun _one(file: source.SourceFile, u: PackageUse, literal: Node)
+    : UseDecl
+  =>
+    let alias =
+      match u.alias()
+      | let a: Node => a.text()
+      | None => None
       end
-      match part.kind()
-      | NdUseName =>
-        match part.child(TkId)
-        | let name: Node => alias = name.text()
-        end
-      | TkString => if literal is None then literal = part end
-      | TkIf => after_if = true
-      | NdUseFFI => return None
+    let guard = u.guard()
+    let guard_span =
+      match guard
+      | let g: Node => g.span()
+      | None => None
       end
-    end
-    match literal
-    | let l: Node =>
-      let guard_span =
-        match guard
-        | let g: Node => g.span()
-        else
-          None
-        end
-      let finish =
-        match guard
-        | let g: Node => g.finish()
-        else
-          l.finish()
-        end
-      UseDecl(StringLiteralValue.of(l), alias, guard_span,
-        diag.Span(file.dir, file.name, command.offset(),
-          finish - command.offset()),
-        l.span())
-    | None => None
-    end
+    let finish =
+      match guard
+      | let g: Node => g.finish()
+      | None => literal.finish()
+      end
+    let start = u.node().offset()
+    UseDecl(StringLiteralValue.of(literal), alias, guard_span,
+      diag.Span(file.dir, file.name, start, finish - start), literal.span())
 
 primitive StackNeed
   """
