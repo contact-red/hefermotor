@@ -15,6 +15,7 @@ actor \nodoc\ Main is TestList
     _DiagnosticTests.tests(test)
     _LexDiagnosticTests.tests(test)
     _ItemTests.tests(test)
+    _PropertyTests.tests(test)
     test(_TestBareUse)
     test(_TestSchemesAliasesAndGuards)
     test(_TestFfiExcluded)

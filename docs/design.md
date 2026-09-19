@@ -1282,6 +1282,74 @@ the lexer produced (T7).
     every node's span on incomplete input ends the same way, which the
     views will rely on.
 
+12. **The properties.** `_test_properties.pony` over four seeds in
+    `_test_seeds.pony` (a use section with entities of every kind;
+    fields, methods and an object literal; control structures and
+    lambdas; type grammar and FFI), each pinned clean with its entity
+    and member counts. Three properties, 300 to 400 samples each. The
+    use-section generator draws one to five well-formed commands (a
+    plain, an escaped or a triple-quoted locator; an alias or none; a
+    guard that is an identifier, a parenthesised expression or none)
+    and one fault from the design's closed set (junk before a line,
+    the specifier deleted, the alias without `=`, the guard cut by the
+    entity keyword, a `use` alone, the last line's quote unterminated)
+    and asserts the surviving commands' locators, aliases and guards,
+    one diagnostic at the fault's offset, the two entry points'
+    agreement and `TreeCheck`. The byte-level property mutates a seed
+    by a truncation, a four-byte deletion or an insertion of `"`, `(`,
+    `end` or `/*` at a byte drawn within that seed, and asserts
+    `TreeCheck` empty and the entry points equal, with pony_check's
+    shrinking. The token-level property deletes, duplicates or inserts
+    a token at a slot drawn within that seed's tokens, computed once
+    per seed, and asserts the entity and member counts against the
+    outcome table. The property's first run over the seeds showed two
+    of the design's rows wrong, where the design said a wrong row
+    would show: "any other leaf deleted or duplicated" is not 0 for
+    members, since a token whose absence ends a method body early
+    (`match`, `(`, `=>`, `|`, an annotation's `\`, a parameter's
+    name, and more) leaves the locals after that point to the member
+    list as fields, an object literal whose parse breaks leaves its
+    fields as locals, and a field's value cut short reads the `var`
+    and `let` fields after it as local declarations; and "a member's
+    keyword deleted" is not exactly −1, since the member's locals
+    become fields except those an earlier local's value takes. The
+    table now has exact rows for a deleted or duplicated entity
+    keyword (±1, and −members for the first entity), a duplicated
+    member keyword (+1) and an insertion's entity delta (0, or +1 for
+    an entity keyword), and a range for the member delta of everything
+    else: from minus the fields at or after the token in its innermost
+    object literal and the run of `var`/`let` fields after its field,
+    to plus the locals at or after it in its member (a deleted member
+    keyword: −1 to −1 plus its locals); outside a member the range is
+    zero. Each range is what locality means: an edit's effect on the
+    member count is confined to the member it sits in and, inside a
+    field's value, the fields after it. The review's exhaustive run of
+    every token edit on every seed (10,842 edits) found one row gap
+    the first ten property runs had a 2% chance per run of drawing: an
+    `end` inserted before an object literal's field keyword ends the
+    literal, so a member keyword inside a literal now carries the
+    literal's fields; the same run found the ranges are bounds and not
+    vacuous (the exact rows, a quarter of the edits, assert a change;
+    the ranged rows are met at both edges), and that a parser that
+    ignored every edit would pass the ranged rows, which is what a
+    bound means. `_TestTokenEditRows` runs fifteen edits on the
+    members seed with their exact deltas, one per row and one per
+    mechanism the ranges bound. Two departures from the sketch: with
+    the ranges every edit has a row, so the generator's failure on a
+    rowless edit has nothing to fire on and is not written; and a
+    byte-level sample is one edit rather than the sketch's batch of
+    eight, so that a failing sample shrinks to one edit. The three
+    properties run in 1.5 s together (the token property was 9.3 s
+    before its tokens were computed once per seed and its messages
+    built only on failure); a 400-sample run draws about 4% of the
+    token edits and 2% of the byte mutants, so the exhaustive
+    enumeration, at about 7 s, is the stronger check and is not in the
+    suite. Ten consecutive runs of the three properties passed after
+    the table was corrected; the grammar mutation `_InEntity` ending
+    at `end` failed the token property and the row test, and the use
+    section resyncing at entities failed the token, byte and
+    use-section properties.
+
 ### The ponyc-bump procedure
 
 Every claim about ponyc in these documents cites commit `6a0bfa80b`;
