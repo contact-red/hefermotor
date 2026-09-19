@@ -10,6 +10,9 @@ primitive \nodoc\ _DiagnosticTests is TestList
     test(_TestEntryGates)
     test(_TestCasePattern)
     test(_TestSequenceStopsAfterJump)
+    test(_TestUnterminatedFamily)
+    test(_TestUnterminatedBeside)
+    test(_TestUnterminatedBudget)
     test(_TestLexErrorRecordsNothing)
     test(_TestNestingRecord)
     test(_TestNestingAtEof)
@@ -147,19 +150,222 @@ class \nodoc\ iso _TestExpectedAtEof is UnitTest
       "syntax error: expected =, found the end of the file",
       "use at the end")
 
+primitive \nodoc\ _Exactly
+  """
+  Asserts a source's diagnostics are exactly the given (code, start,
+  message) rows, in order, and that `TreeCheck` finds nothing.
+  """
+  fun apply(h: TestHelper, src: String val,
+    rows: Array[(String val, USize, String val)] val, label: String)
+  =>
+    let diagnostics = _Diagnostics(src)
+    h.assert_eq[USize](rows.size(), diagnostics.size(), label + ": count")
+    var i: USize = 0
+    while (i < rows.size()) and (i < diagnostics.size()) do
+      try
+        (let code, let start, let message) = rows(i)?
+        let d = diagnostics(i)?
+        h.assert_eq[String](code, d.cause.code(), label + " " + i.string())
+        h.assert_eq[USize](start, _Start(d), label + " " + i.string())
+        h.assert_eq[String](message, d.cause.message(),
+          label + " " + i.string())
+      else
+        _Unreachable()
+      end
+      i = i + 1
+    end
+    for v in _Check(src).values() do h.fail(label + ": " + v.string()) end
+
 class \nodoc\ iso _TestEntryGates is UnitTest
   fun name(): String => "parse/diagnostics: optional rules are gated"
 
   fun apply(h: TestHelper) =>
     """
     An optional rule is entered only where its first token can start
-    it, so a closer in its place is reported by the enclosing rule:
-    ponyc's `3:7: expected ) after (` and `3:7: expected ) after (`.
+    it, so a token that cannot start it, in its place, is not an
+    expected argument or parameter: ponyc's `3:6: unterminated call
+    arguments` and `3:7: expected ) after (`. The lambda's `}` is in
+    the source but the rules inside stop at the `,`, so the lambda is
+    recorded unterminated too.
     """
-    _Expected(h, "class C\n  fun f() =>\n    g(])\n", 27,
-      "syntax error: expected ), found ]", "call arguments")
-    _Expected(h, "class C\n  fun f() =>\n    {(,) => 1 }\n", 27,
-      "syntax error: expected ), found ,", "lambda parameters")
+    _Exactly(h, "class C\n  fun f() =>\n    g(])\n", [
+      ("parse/unterminated", 26, "syntax error: unterminated call arguments")
+      ("parse/expected", 27, "syntax error: expected field or method, " +
+        "found ]")
+    ], "call arguments")
+    _Exactly(h, "class C\n  fun f() =>\n    {(,) => 1 }\n", [
+      ("parse/unterminated", 25,
+        "syntax error: unterminated lambda expression")
+      ("parse/expected", 27, "syntax error: expected ), found ,")
+    ], "lambda parameters")
+
+class \nodoc\ iso _TestUnterminatedFamily is UnitTest
+  fun name(): String =>
+    "parse/diagnostics: unterminated, one per TERMINATE rule"
+
+  fun apply(h: TestHelper) =>
+    """
+    One row per ponyc `TERMINATE` rule: the construct left open
+    records exactly one `parse/unterminated`, over its opening token,
+    naming ponyc's construct, with `before` at the token found in place
+    of the closer, which is the last significant token where the file
+    ends. Each row's opener and that token are found in its source.
+    ponyc at `--pass=parse` reports every row as `unterminated <what>`
+    at the opener with `expected terminating <closer> before here` at
+    that token. The array rows are a first statement and a
+    continuation statement, ponyc's `array` and `nextarray`.
+    """
+    let body_rows: Array[(String val, String val, String val, String val)]
+      val = [
+      ("x.foo[U8", "type arguments", "[", "U8")
+      ("if \\a, b true then 1 end", "annotations", "\\", "true")
+      ("object fun f() => 1", "object literal", "object", "1")
+      ("{(x: U8) => x", "lambda expression", "{", "x")
+      ("@{(x: U8) => x", "lambda expression", "@{", "x")
+      ("[1; 2", "array literal", "[", "2")
+      ("1\n    [1; 2", "array literal", "[", "2")
+      ("@foo[U8](1", "ffi arguments", "@", "1")
+      ("foo(1", "call arguments", "(", "1")
+      ("if true then 1", "if expression", "if", "1")
+      ("ifdef linux then 1", "ifdef expression", "ifdef", "1")
+      ("iftype A <: B then 1", "iftype expression", "iftype", "1")
+      ("match x | 1 => 2", "match expression", "match", "2")
+      ("while true do 1", "while loop", "while", "1")
+      ("repeat 1 until false", "repeat loop", "repeat", "false")
+      ("for x in y do 1", "for loop", "for", "1")
+      ("with x = y do 1", "with expression", "with", "1")
+      ("try 1 else 2", "try expression", "try", "2")
+      ("recover iso String", "recover expression", "recover", "String")
+    ]
+    for (body, what, opener, last) in body_rows.values() do
+      _one(h, _Nested.body(body), what, body, opener, last, 41)
+    end
+    _one(h, "class C[A: Any\n", "type parameters", "class C[A: Any\n", "[",
+      "Any", 0)
+    _one(h, "use @foo[U8(x: U8)\n", "type arguments", "use @foo[U8(x: U8)\n",
+      "[", "(", 0)
+
+  fun _one(h: TestHelper, src: String val, what: String val,
+    body: String val, opener: String val, last: String val, base: USize)
+  =>
+    """
+    Exactly one diagnostic in `src`, a `parse/unterminated` over
+    `opener`'s first occurrence in `body` (which starts `base` bytes
+    into `src`), with `before` at `last`'s last occurrence.
+    """
+    var found: USize = 0
+    let diagnostics = _Diagnostics(src)
+    h.assert_eq[USize](1, diagnostics.size(), body + ": diagnostics")
+    for d in diagnostics.values() do
+      match d.cause
+      | let u: SyntaxUnterminated =>
+        found = found + 1
+        h.assert_eq[String](what, u.what, body)
+        h.assert_eq[String]("syntax error: unterminated " + what,
+          d.cause.message(), body)
+        try
+          h.assert_eq[USize](base + body.find(opener)?.usize(), _Start(d),
+            body + ": opener")
+          h.assert_eq[USize](base + body.rfind(last)?.usize(), u.before,
+            body + ": before")
+        else
+          h.fail(body + ": opener or last token not in the source")
+        end
+        match d.location
+        | let sp: diag.Span => h.assert_eq[USize](opener.size(), sp.length,
+          body + ": width")
+        else
+          h.fail(body + ": not a span")
+        end
+      end
+    end
+    h.assert_eq[USize](1, found, body + ": unterminated records")
+    for v in _Check(src).values() do h.fail(body + ": " + v.string()) end
+
+class \nodoc\ iso _TestUnterminatedBeside is UnitTest
+  fun name(): String =>
+    "parse/diagnostics: a missing closer beside what was inside"
+
+  fun apply(h: TestHelper) =>
+    """
+    A missing closer is recorded at the opener whatever was recorded
+    inside the construct, so `foo(` alone has one record, `foo(1,` has
+    the argument's and the opener's, sorted opener first where ponyc
+    reports the argument only (`3:10: expected argument after ,`), and
+    junk in an open `if` has the junk's and the opener's. Junk in a
+    closed `if` has the junk's only, where ponyc reports the `if`
+    unterminated. `fun f(` is not a `TERMINATE` site, so its `)` is an
+    expectation, at the `(` since the file ends. A lexer refusal inside
+    an open construct, or in place of its closer, excuses nothing at
+    the opener. An opener that is the last token shares its start with
+    the expectation inside it, and sorts after it by width.
+    """
+    _Exactly(h, _Nested.body("foo("), [
+      ("parse/unterminated", 44, "syntax error: unterminated call arguments")
+    ], "foo(")
+    _Exactly(h, _Nested.body("foo(1,"), [
+      ("parse/unterminated", 44, "syntax error: unterminated call arguments")
+      ("parse/expected", 46, "syntax error: expected argument, found the " +
+        "end of the file")
+    ], "foo(1,")
+    _Exactly(h, "class C\n  fun f(\n", [
+      ("parse/expected", 15, "syntax error: expected ), found the end of " +
+        "the file")
+    ], "fun f(")
+    _Exactly(h, _Nested.body("if true then 1 : 2"), [
+      ("parse/unterminated", 41, "syntax error: unterminated if expression")
+      ("parse/expected", 56, "syntax error: expected value, found :")
+    ], "open if")
+    _Exactly(h, _Nested.body("if true then 1 : 2 end"), [
+      ("parse/expected", 56, "syntax error: expected value, found :")
+    ], "closed if")
+    _Exactly(h, _Nested.body("foo(1 \""), [
+      ("parse/unterminated", 44, "syntax error: unterminated call arguments")
+    ], "lexer refusal inside")
+    _Exactly(h, _Nested.body("x.foo[U8 \""), [
+      ("parse/unterminated", 46, "syntax error: unterminated type arguments")
+    ], "lexer refusal at the closer")
+    _Exactly(h, "class C[A: Any \"\n", [
+      ("parse/unterminated", 7, "syntax error: unterminated type parameters")
+    ], "lexer refusal at a type parameter list's closer")
+    _Exactly(h, _Nested.body("x.foo["), [
+      ("parse/expected", 46, "syntax error: expected type argument, found " +
+        "the end of the file")
+      ("parse/unterminated", 46, "syntax error: unterminated type arguments")
+    ], "opener last")
+
+class \nodoc\ iso _TestUnterminatedBudget is UnitTest
+  fun name(): String => "parse/diagnostics: unterminated is budgeted"
+
+  fun apply(h: TestHelper) =>
+    """
+    600 methods each leaving a call open record 500 `parse/unterminated`
+    and one `parse/limit`, the 500 being the first 500, and `TreeCheck`
+    is empty.
+    """
+    let src: String val = recover val
+      "class C\n" + "  fun f() => g(\n".mul(600)
+    end
+    let diagnostics = _Diagnostics(src)
+    h.assert_eq[USize](501, diagnostics.size())
+    var unterminated: USize = 0
+    var last: USize = 0
+    for d in diagnostics.values() do
+      match d.cause
+      | let _: SyntaxUnterminated =>
+        unterminated = unterminated + 1
+        last = _Start(d)
+      end
+    end
+    h.assert_eq[USize](500, unterminated)
+    // The k-th `(` sits at 8 + (k - 1) * 16 + 14.
+    h.assert_eq[USize](8 + (499 * 16) + 14, last)
+    try
+      h.assert_eq[String]("parse/limit", diagnostics(0)?.cause.code())
+    else
+      h.fail("no diagnostics")
+    end
+    for v in _Check(src).values() do h.fail(v.string()) end
 
 class \nodoc\ iso _TestCasePattern is UnitTest
   fun name(): String => "parse/diagnostics: a case pattern is not an if"

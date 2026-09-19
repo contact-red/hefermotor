@@ -320,6 +320,7 @@ primitive _Call
   """
   fun apply(p: _Parser ref) =>
     p.start(NdArgs)
+    let opener = p.open()
     p.bump()
     if p.at_expr_start() then
       _Positional(p)
@@ -327,7 +328,7 @@ primitive _Call
     if p.at(TkWhere) then
       _NamedArgs(p)
     end
-    p.expect(TkRparen, ")")
+    p.close(opener, TkRparen, "call arguments")
     p.finish()
     if p.at(TkQuestion) then
       p.bump()

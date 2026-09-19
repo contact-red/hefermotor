@@ -14,7 +14,8 @@
 # roots. Each tool invocation is limited to DIFFERENTIAL_TIMEOUT seconds
 # (default 600); a timeout is a crash.
 #
-# Scoring. The verdict is `ponyc -V2 --pass=scope <dir>`: exit 0 is
+# Scoring. The verdict is `ponyc -V2 --pass=scope <dir>`, or
+# `--pass=parse` for a fixture whose name starts `syntax-`: exit 0 is
 # accept, 255 is reject, anything else is a crash; hefermotor's `--json`
 # exit 0 is accept, 1 is reject, 2 aborts the run, anything else is a
 # crash, and a document not shaped as one format-1 line (`format` and
@@ -25,12 +26,25 @@
 # basename sets with the document's `groups`. The partition is not
 # compared when two packages share a basename or when ponyc printed no
 # dump; the summary counts such cases, and a dump call that times out
-# is a crash. A case directory holding a file named KNOWN_GAP is
-# expected to differ in the class the file names, `verdict`, `packages`
-# or `groups`: that difference is reported as `known gap` and does not
-# fail the run, a difference in another class is a DIFFER, and an
-# agreement is reported as `known gap closed` and counted so the
-# marker's removal is noticed.
+# is a crash. A `syntax-` fixture is scored on the verdict, never on
+# packages or groups, and when both reject, on positions: every
+# `<path>:<line>:<col>:` at the start of a line of ponyc's stderr (its
+# `Info:` frames are indented) must be the position of a `parse/`
+# diagnostic in hefermotor's document (`positions.py`), the class
+# `positions`; the check runs one way, since ponyc resumes only at the
+# next `use` or entity keyword and hefermotor at the member and the
+# statement too. The number of distinct hefermotor positions must equal
+# the integer in the case's `EXPECT` file, the class `count`; and
+# whether hefermotor's lowest position is ponyc's is summed into
+# `first-position agree A of B` on the summary line. A case directory
+# holding a file named KNOWN_GAP is expected to differ in exactly the
+# classes the file lists, one per line, from `verdict`, `packages`,
+# `groups`, `positions` and `count`: that difference is reported as
+# `known gap` and does not fail the run, a different set of classes is
+# a DIFFER, and an agreement is reported as `known gap closed` and
+# counted so the marker's removal is noticed. A `syntax-` fixture both
+# tools accept is a `count` difference unless its EXPECT is 0, so a
+# fixture meant to be broken cannot pass by being valid.
 #
 # The sentinel case, `cases/sentinel`, runs first: ponyc's `builtin`
 # path from its `Building` line must equal hefermotor's, and ponyc must
@@ -44,6 +58,7 @@ here=$(cd "$(dirname "$0")" && pwd)
 timeout_s=${DIFFERENTIAL_TIMEOUT:-600}
 
 ponyc_bin=$(command -v ponyc) || { echo "no ponyc on PATH" >&2; exit 2; }
+command -v python3 > /dev/null || { echo "no python3 on PATH" >&2; exit 2; }
 
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
@@ -55,6 +70,8 @@ known=0
 closed=0
 crashed=0
 not_compared=0
+fp_agree=0
+fp_total=0
 
 # run_ponyc <cwd> <target> <verbosity> <pass> <out> <err>: ponyc's exit
 # code.
@@ -160,6 +177,24 @@ set_difference() {
   } | tr '\n' ' '
 }
 
+# positions_ponyc <ponyc stderr>: `<path>:<line>:<col>:` of every error
+# line, sorted and unique.
+positions_ponyc() {
+  grep -oE '^/[^:]+:[0-9]+:[0-9]+:' "$1" | LC_ALL=C sort -u
+}
+
+# positions_hefermotor <document> <out>: the same for every `parse/`
+# diagnostic, into `out`; false when `positions.py` fails.
+positions_hefermotor() {
+  python3 "$here/positions.py" "$1" > "$tmp/raw.pos" || return 1
+  LC_ALL=C sort -u "$tmp/raw.pos" > "$2"
+}
+
+# lowest_position <positions>: the first by file, line and column.
+lowest_position() {
+  sort -t: -k1,1 -k2,2n -k3,3n "$1" | head -n 1
+}
+
 report() {
   local case_name=$1 outcome=$2 detail=$3
   echo "$outcome: $case_name${detail:+: $detail}"
@@ -171,12 +206,16 @@ is_timeout() {
   [ "$1" = 124 ] || [ "$1" = 143 ]
 }
 
-# score_case <working dir> <target> <name> <known gap class or no>
+# score_case <working dir> <target> <name> <known gap classes or no>
+# <kind>: `kind` is `syntax` for a fixture scored at `--pass=parse` on
+# the verdict and positions, `program` for one scored at `--pass=scope`
+# on the verdict, packages and groups.
 score_case() {
-  local dir=$1 target=$2 name=$3 gap=$4
+  local dir=$1 target=$2 name=$3 gap=$4 kind=$5
   compared=$((compared + 1))
-  local pv hv code
-  run_ponyc "$dir" "$target" 2 scope "$tmp/p.out" "$tmp/p.err"
+  local pv hv code missing n want pass=scope
+  [ "$kind" = syntax ] && pass=parse
+  run_ponyc "$dir" "$target" 2 "$pass" "$tmp/p.out" "$tmp/p.err"
   code=$?
   pv=$(verdict_ponyc "$code")
   run_hefermotor "$dir" "$target" "$tmp/h.json" "$tmp/h.err"
@@ -197,19 +236,63 @@ score_case() {
     outcome=differ
     detail="verdict: ponyc $pv, hefermotor $hv"
   fi
-  # The class a difference falls in: the verdict, then the package set,
-  # then the group partition.
-  local class=verdict
-  if [ "$outcome" = agree ] && [ "$pv" = accept ]; then
+  # The classes a difference falls in: the verdict, then the package
+  # set and the group partition, or for a syntax case the positions and
+  # their count.
+  local classes=verdict
+  if [ "$outcome" = agree ] && [ "$pv" = reject ] && [ "$kind" = syntax ]
+  then
+    classes=""
+    positions_ponyc "$tmp/p.err" > "$tmp/p.pos"
+    if ! positions_hefermotor "$tmp/h.json" "$tmp/h.pos"; then
+      echo "positions.py failed on $name" >&2
+      exit 2
+    fi
+    missing=$(LC_ALL=C comm -23 "$tmp/p.pos" "$tmp/h.pos" | tr '\n' ' ')
+    if [ -n "$missing" ]; then
+      outcome=differ
+      classes="positions"
+      detail="positions ponyc only: $missing"
+    fi
+    n=$(wc -l < "$tmp/h.pos")
+    want=$(cat "$dir/EXPECT")
+    if [ "$n" -ne "$want" ]; then
+      outcome=differ
+      classes="$classes count"
+      detail="$detail${detail:+; }count: $n parse/ positions, EXPECT $want"
+    fi
+    fp_total=$((fp_total + 1))
+    if [ "$(lowest_position "$tmp/p.pos")" = \
+      "$(lowest_position "$tmp/h.pos")" ]
+    then
+      fp_agree=$((fp_agree + 1))
+    fi
+    [ "$outcome" = agree ] && detail="verdict and $n position(s)"
+  fi
+  if [ "$outcome" = agree ] && [ "$pv" = accept ] && [ "$kind" = syntax ]
+  then
+    classes=""
+    want=$(cat "$dir/EXPECT")
+    if [ "$want" -ne 0 ]; then
+      outcome=differ
+      classes=count
+      detail="count: both accept, EXPECT $want"
+    else
+      detail="both accept"
+    fi
+  fi
+  if [ "$outcome" = agree ] && [ "$pv" = accept ] && [ "$kind" = program ]
+  then
     packages_from_building "$tmp/p.err" > "$tmp/p.pkgs"
     packages_from_json "$tmp/h.json" > "$tmp/h.pkgs"
     if ! cmp -s "$tmp/p.pkgs" "$tmp/h.pkgs"; then
       outcome=differ
-      class=packages
+      classes=packages
       detail="packages: $(set_difference "$tmp/p.pkgs" "$tmp/h.pkgs")"
     fi
   fi
-  if [ "$outcome" = agree ] && [ "$pv" = accept ]; then
+  if [ "$outcome" = agree ] && [ "$pv" = accept ] && [ "$kind" = program ]
+  then
     run_ponyc "$dir" "$target" 3 reach "$tmp/r.out" "$tmp/r.err"
     code=$?
     if is_timeout "$code"; then
@@ -221,7 +304,7 @@ score_case() {
         groups_from_json "$tmp/h.json" > "$tmp/h.groups"
         if ! cmp -s "$tmp/p.groups" "$tmp/h.groups"; then
           outcome=differ
-          class=groups
+          classes=groups
           detail="groups: $(set_difference "$tmp/p.groups" "$tmp/h.groups")"
         else
           detail="verdict, packages and $(wc -l < "$tmp/h.groups") group(s)"
@@ -245,7 +328,10 @@ score_case() {
         report "$name" agree "$detail"
       fi ;;
     differ)
-      if [ "$gap" = "$class" ]; then
+      # shellcheck disable=SC2086
+      if [ "$(printf '%s\n' $gap | LC_ALL=C sort)" = \
+        "$(printf '%s\n' $classes | LC_ALL=C sort)" ]
+      then
         known=$((known + 1))
         report "$name" "known gap" "$detail"
       else
@@ -290,22 +376,34 @@ echo "sentinel: both use $ponyc_builtin"
 
 # --- the cases ---------------------------------------------------------
 
-# score_fixture <case dir>: a KNOWN_GAP file's first word names the
-# class expected to differ.
+# score_fixture <case dir>: a KNOWN_GAP file lists the classes expected
+# to differ, one per line; a `syntax-` case holds an EXPECT file.
 score_fixture() {
-  local c gap
+  local c gap kind word
   [ -d "$1" ] || { echo "no such case directory: $1" >&2; exit 2; }
   c=$(cd "$1" && pwd)
+  kind=program
+  case "$(basename "$c")" in
+    syntax-*)
+      kind=syntax
+      if ! grep -qxE '[0-9]+' "$c/EXPECT" 2> /dev/null; then
+        echo "$c/EXPECT must hold one integer" >&2
+        exit 2
+      fi ;;
+  esac
   gap=no
   if [ -e "$c/KNOWN_GAP" ]; then
-    gap=$(awk 'NR == 1 { print $1 }' "$c/KNOWN_GAP")
-    case "$gap" in
-      verdict|packages|groups) ;;
-      *) echo "$c/KNOWN_GAP must name verdict, packages or groups" >&2
-         exit 2 ;;
-    esac
+    gap=""
+    while read -r word || [ -n "$word" ]; do
+      case "$word" in
+        verdict|packages|groups|positions|count) gap="$gap $word" ;;
+        *) echo "$c/KNOWN_GAP must list verdict, packages, groups," \
+             "positions or count, one per line" >&2
+           exit 2 ;;
+      esac
+    done < "$c/KNOWN_GAP"
   fi
-  score_case "$c" "$c/main" "$(basename "$c")" "$gap"
+  score_case "$c" "$c/main" "$(basename "$c")" "$gap" "$kind"
 }
 
 if [ $# -gt 0 ]; then
@@ -316,12 +414,13 @@ else
   work=$tmp/stdlib-cwd
   mkdir -p "$work"
   while read -r p; do
-    score_case "$work" "$p" "stdlib/${p#"$packages"/}" no
+    score_case "$work" "$p" "stdlib/${p#"$packages"/}" no program
   done < <(find "$packages" -name '*.pony' -exec dirname {} \; \
     | LC_ALL=C sort -u)
 fi
 
 echo "differential: $compared compared, $agreed agree, $differed differ," \
   "$known known gaps, $closed known gaps closed, $crashed crashed," \
-  "$not_compared groups not compared"
+  "$not_compared groups not compared," \
+  "first-position agree $fp_agree of $fp_total"
 if [ "$differed" != 0 ] || [ "$crashed" != 0 ]; then exit 1; fi

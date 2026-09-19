@@ -1094,6 +1094,48 @@ the lexer produced (T7).
    names the token before ("expected ), found ," against ponyc's
    "expected ) after ("); the positions agree in every probe.
 
+8. **Unterminated constructs and the position checks.** `_Parser.open`
+   takes a construct's opening token as an `_Opener` and `close`
+   emits the closer or records `SyntaxUnterminated(what, before)` over
+   the opener, at the 18 sites that serve ponyc's 21 ported `TERMINATE`
+   rules with ponyc's strings (`_Lambda` serves both lambda forms,
+   `_ArrayLit` both array forms, `_TypeArgs` both `typeargs` and
+   `ffi_ret_typeargs`); the closers ponyc reads with `SKIP` keep
+   `expect`. The record is unconditional (T2's working answer) and is
+   not noted for the dedupe, so a rule that fails on the token found
+   in the closer's place still records there, which is what keeps
+   every error node at a record. `before` is that token, or the last
+   significant token at the end of the file, where ponyc's `Info:`
+   frame points in every probe. Unconditional means the record is also
+   made for a closer the source has but the rules inside stopped short
+   of, as in `{(,) => 1 }`, where a lambda's header has no sequence to
+   resynchronise in; ponyc's `TERMINATE` does the same, and divergence
+   14 and T2's cost now name that shape, which the design's T2 text
+   did not. `_Opener` is a tuple, not an object, since every call and
+   control structure takes one. Divergences 13 and 14 of Discussion
+   #13 are in `docs/ponyc-divergences.md`. The harness
+   scores a `syntax-*` fixture at `--pass=parse` on the verdict and,
+   when both reject, on positions: ponyc's set must be a subset of
+   hefermotor's `parse/` positions (`positions.py` turns a document's
+   byte offsets into ponyc's `path:line:col:`), hefermotor's count
+   must equal the fixture's `EXPECT`, and the first-position agreement is summed
+   on the summary line; `KNOWN_GAP` lists a set of classes. Twelve
+   fixtures: nine agree, `syntax-junk-in-closed-if` and
+   `syntax-lexerror-at-closer` (a lexer refusal in a closer's place,
+   which `close` records over unlike `expected`) are `positions` gaps
+   (divergence 13, and the lexer's record until task 9), `syntax-depth` a `verdict`
+   gap (divergence 15); first-position agreement 9 of 11.
+   `syntax-unterminated` holds one entity per construct, and ponyc
+   reports all 21 in one run at the positions hefermotor reports.
+   Tests: the 21-row table finds each row's opener and last token in
+   its source; `foo(` records the opener alone, `foo(1,` the opener
+   and the argument, sorted opener first; junk in an open `if` two
+   records and in a closed `if` one; `fun f(` at the end of the file
+   one expectation at the `(`; `foo(1 "` one record until task 9; 600
+   open calls 500 records and the limit. The `EXPECT` counts of the
+   junk fixtures are baselined under the quarried item grammar and are
+   re-baselined in task 10.
+
 ### The ponyc-bump procedure
 
 Every claim about ponyc in these documents cites commit `6a0bfa80b`;

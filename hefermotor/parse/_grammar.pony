@@ -167,13 +167,14 @@ primitive _Annotations
   """
   fun apply(p: _Parser ref) =>
     p.start(NdAnnotations)
+    let opener = p.open()
     p.bump()
     p.expect(TkId, "annotation")
     while p.at(TkComma) do
       p.bump()
       p.expect(TkId, "annotation")
     end
-    p.expect(TkBackslash, "\\")
+    p.close(opener, TkBackslash, "annotations")
     p.finish()
 
 primitive _Members

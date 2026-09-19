@@ -171,13 +171,14 @@ primitive _TypeArgs
   """
   fun apply(p: _Parser ref) =>
     p.start(NdTypeArgs)
+    let opener = p.open()
     p.bump()
     _TypeArg(p, "type argument")
     while p.at(TkComma) do
       p.bump()
       _TypeArg(p, "type argument")
     end
-    p.expect(TkRsquare, "]")
+    p.close(opener, TkRsquare, "type arguments")
     p.finish()
 
 primitive _TypeArg
@@ -206,13 +207,14 @@ primitive _TypeParams
   """
   fun apply(p: _Parser ref) =>
     p.start(NdTypeParams)
+    let opener = p.open()
     p.bump()
     _TypeParam(p)
     while p.at(TkComma) do
       p.bump()
       _TypeParam(p)
     end
-    p.expect(TkRsquare, "]")
+    p.close(opener, TkRsquare, "type parameters")
     p.finish()
 
 primitive _TypeParam

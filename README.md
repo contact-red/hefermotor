@@ -21,7 +21,9 @@ decision log.
   where the package sits
 * `make differential` compares verdicts, package sets and group
   partitions with the `ponyc` on `PATH` over the fixtures in
-  `tools/differential/cases` and every package beside that `ponyc`
+  `tools/differential/cases` and every package beside that `ponyc`, and
+  on the `syntax-*` fixtures the positions of the parse errors; needs
+  python3
 * `make token-agreement PONYC_SRC=<ponyc checkout> PONYC_LIB=<its lib
   dir>` compares the lexer's token kinds with ponyc's lexer's over
   every stdlib file beside the `ponyc` on `PATH`, linking
